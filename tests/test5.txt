@@ -1,0 +1,21 @@
+
+int main() {
+    for (i = 0 to 5) {
+        if (i > 2) {
+            break;
+            print(i);
+        } else {
+            continue;
+            print(i);
+        }
+        print(i * 2);
+    }
+
+    int a = input();
+    if (a > 0) {
+        int d = 3;
+    } else {
+        int d = 1;
+    }
+    return 0;
+}

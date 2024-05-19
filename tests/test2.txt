@@ -1,0 +1,33 @@
+int arithClean(int a) {
+    int b = 5;
+    if (b > 3) {
+        b = 9;
+    } else {
+        print(b);
+    }
+    return (a * b) mod 99;
+}
+
+int arithDirt(int a) {
+    print(a);
+    return a mod 99;
+}
+
+
+int main() {
+    int i = 0;
+    int c = 5;
+    do {
+        int j = i;
+        do  {
+            int d = arithClean(5);
+            int a = arithClean(i);
+            int b = arithDirt(i);
+            c = c * a div d;
+            j = j + 1;
+        } while (j < 10)
+        i = i + 1;
+    } while (i < 10)
+    print(c);
+    return 0;
+}

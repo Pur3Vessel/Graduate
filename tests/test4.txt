@@ -1,0 +1,14 @@
+int main() {
+    int a = 2;
+    int d = 3;
+    loop:
+    int f = a + d;
+    int g = 5;
+    a = g - d;
+    if (f <= g) {
+        f = g + 1;
+        print(f);
+        goto loop;
+    }
+    return 0;
+}

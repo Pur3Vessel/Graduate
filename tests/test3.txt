@@ -1,0 +1,19 @@
+int arith(int a) {
+    return a * 2;
+}
+
+
+int main() {
+    int i = 0;
+    int j = 1;
+    a:
+    int c = input();
+    int d = input();
+    int b = arith(j);
+    print(b);
+    if (i < 10) {
+        i = i + c;
+        goto a;
+    }
+    return 0;
+}
