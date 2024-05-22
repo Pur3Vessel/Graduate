@@ -6,6 +6,7 @@ from typing import List, Union
 
 NestedList = Union[float, List['NestedList']]
 
+
 def check_dimentions(nested_list, dimentions):
     if len(nested_list) != int(dimentions[0]):
         return False
@@ -549,12 +550,14 @@ class IfAction(Action):
         decl_arrays_then = deepcopy(decl_arrays)
         labels_then = deepcopy(labels)
         for action in self.if_block:
-            action.check(defined_funcs, scalar_args, array_args, decl_vars_then, decl_arrays_then, labels_then, is_loop, func_type)
+            action.check(defined_funcs, scalar_args, array_args, decl_vars_then, decl_arrays_then, labels_then, is_loop,
+                         func_type)
         decl_vars_else = deepcopy(decl_vars)
         decl_arrays_else = deepcopy(decl_arrays)
         labels_else = deepcopy(labels)
         for action in self.else_block:
-            action.check(defined_funcs, scalar_args, array_args, decl_vars_else, decl_arrays_else, labels_else, is_loop, func_type)
+            action.check(defined_funcs, scalar_args, array_args, decl_vars_else, decl_arrays_else, labels_else, is_loop,
+                         func_type)
 
     def generate(self):
         st_assings, st_tmp = simplify_expression(self.if_st)
@@ -655,7 +658,8 @@ class WhileAction(Action):
         decl_arrays_loop = deepcopy(decl_arrays)
         labels_loop = deepcopy(labels)
         for action in self.block:
-            action.check(defined_funcs, scalar_args, array_args, decl_vars_loop, decl_arrays_loop,labels_loop, True, func_type)
+            action.check(defined_funcs, scalar_args, array_args, decl_vars_loop, decl_arrays_loop, labels_loop, True,
+                         func_type)
 
     def generate(self):
         current = builder.current_block()
@@ -722,7 +726,8 @@ class DoWhileAction(Action):
         decl_arrays_loop = deepcopy(decl_arrays)
         labels_loop = deepcopy(labels)
         for action in self.block:
-            action.check(defined_funcs, scalar_args, array_args, decl_vars_loop, decl_arrays_loop, labels_loop, True, func_type)
+            action.check(defined_funcs, scalar_args, array_args, decl_vars_loop, decl_arrays_loop, labels_loop, True,
+                         func_type)
 
     def generate(self):
         builder.create_block()
@@ -789,7 +794,8 @@ class ForAction(Action):
         decl_arrays_loop = deepcopy(decl_arrays)
         labels_loop = deepcopy(labels)
         for action in self.block:
-            action.check(defined_funcs, scalar_args, array_args, decl_vars_loop, decl_arrays_loop, labels_loop, True, func_type)
+            action.check(defined_funcs, scalar_args, array_args, decl_vars_loop, decl_arrays_loop, labels_loop, True,
+                         func_type)
 
     def generate(self):
         global tmp_version
@@ -935,14 +941,16 @@ class FuncDef:
             raise SemanticError(self.pos, f"у функции {self.name} найдены одноименные параметры")
 
         scalar_args = dict([(arg.name, arg.type) for arg in self.args if len(arg.dimentions) == 0])
-        array_args = dict([(arg.name, (arg.type, len(arg.dimentions))) for arg in self.args if len(arg.dimentions) != 0])
+        array_args = dict(
+            [(arg.name, (arg.type, len(arg.dimentions))) for arg in self.args if len(arg.dimentions) != 0])
         decl_vars = {}
         decl_arrays = {}
         labels = {}
         is_loop = False
 
         for action in self.block:
-            action.check(defined_funcs, scalar_args, array_args, decl_vars, decl_arrays, labels, is_loop, self.return_type)
+            action.check(defined_funcs, scalar_args, array_args, decl_vars, decl_arrays, labels, is_loop,
+                         self.return_type)
 
         if not self.__check_return():
             raise SemanticError(self.pos, f"функции {self.name} не обнаружено return")

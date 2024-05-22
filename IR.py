@@ -1,5 +1,10 @@
-from abc import ABC
-from lattice import *
+from operands import *
+
+
+def nested_list_to_str(nested_list):
+    if isinstance(nested_list, list):
+        return "{" + ",".join(nested_list_to_str(item) for item in nested_list)
+    return str(nested_list)
 
 
 def is_assign(stmt):
@@ -28,87 +33,6 @@ class BinaryOperations(Enum):
     LESS_EQ = "<="
 
 
-class Operand(ABC):
-    pass
-
-
-class IdOperand(Operand):
-    def __init__(self, value):
-        self.value = value
-
-    def __str__(self):
-        return self.value
-
-
-class IntConstantOperand(Operand):
-    def __init__(self, value):
-        self.value = value
-
-    def __str__(self):
-        return str(self.value)
-
-
-class BoolConstantOperand(Operand):
-    def __init__(self, value):
-        self.value = value
-
-    def __str__(self):
-        return str(self.value)
-
-
-class FuncCallOperand(Operand):
-    def __init__(self, func_name, arguments):
-        self.name = func_name
-        self.args = arguments
-
-    def __str__(self):
-        s = "CALL " + self.name + "("
-        for i, arg in enumerate(self.args):
-            s += str(arg)
-            if i != len(self.args) - 1:
-                s += ", "
-        s += ")"
-        return s
-
-    def get_operands(self):
-        return self.args
-
-    def is_use_op(self, value):
-        is_use = False
-        for arg in self.args:
-            is_use = is_use or value == arg.value
-        return is_use
-
-    def place_constants(self, lattice):
-        changed = False
-        for i, arg in enumerate(self.args):
-            if isinstance(arg, IdOperand):
-                if arg.value in lattice.sl:
-                    val = lattice.sl[arg.value]
-                    if not isinstance(val, ConstantLatticeElement):
-                        if type(val) is int:
-                            self.args[i] = IntConstantOperand(val)
-                        else:
-                            assert type(val) is bool
-                            self.args[i] = BoolConstantOperand(val)
-                        changed = True
-        return changed
-
-    def remove_versions(self):
-        for i, arg in enumerate(self.args):
-            if isinstance(arg, IdOperand):
-                self.args[i] = IdOperand(arg.value.split("_")[0])
-
-
-class FuncArgOperand(Operand):
-    def __init__(self, type, name):
-        self.type = type
-        self.name = name
-
-    def __str__(self):
-        return self.type + " " + self.name
-
-
 class IR(ABC):
     pass
 
@@ -116,53 +40,6 @@ class IR(ABC):
 class NullInstruction(IR):
     def __str__(self):
         return "null instruction"
-
-
-class FuncCallInstruction(IR):
-    def __init__(self, name, arguments):
-        self.name = name
-        self.arguments = arguments
-
-    def __str__(self):
-        s = "CALL VOID " + self.name + "("
-        for i, arg in enumerate(self.arguments):
-            s += str(arg)
-            if i != len(self.arguments) - 1:
-                s += ", "
-        s += ")"
-        return s
-
-    def rename_operands(self, name, version):
-        pass
-
-    def is_use_op(self, value):
-        is_use = False
-        for arg in self.arguments:
-            is_use = is_use or value == arg.value
-        return is_use
-
-    def place_constants(self, lattice):
-        changed = False
-        for i, arg in enumerate(self.arguments):
-            if isinstance(arg, IdOperand):
-                if arg.value in lattice.sl:
-                    val = lattice.sl[arg.value]
-                    if not isinstance(val, ConstantLatticeElement):
-                        if type(val) is int:
-                            self.arguments[i] = IntConstantOperand(val)
-                        else:
-                            assert type(val) is bool
-                            self.arguments[i] = BoolConstantOperand(val)
-                        changed = True
-        return changed
-
-    def get_operands(self):
-        return self.arguments
-
-    def remove_versions(self):
-        for i, arg in enumerate(self.arguments):
-            if isinstance(arg, IdOperand):
-                self.arguments[i] = IdOperand(arg.value.split("_")[0])
 
 
 class FuncDefInstruction(IR):
@@ -190,14 +67,47 @@ class FuncDefInstruction(IR):
         pass
 
 
+class ArrayInitInstruction(IR):
+    def __init__(self, type, name, dimentions, assign):
+        self.type = type
+        self.name = name
+        self.dimentions = dimentions
+        self.assign = assign
+
+    def __str__(self):
+        s = self.type + " " + self.name + "["
+        for i, dim in enumerate(self.dimentions):
+            s += str(dim)
+            if i != len(dim) - 1:
+                s += ", "
+        s += "]"
+        if self.assign is not None:
+            s += " = " + nested_list_to_str(self.assign)
+
+    def rename_operands(self):
+        pass
+
+    def place_constants(self, lattice):
+        return False
+
+    def remove_versions(self):
+        pass
+
+
 class AtomicAssign(IR):
-    def __init__(self, type, value, argument):
+    def __init__(self, type, value, argument, dimentions):
         self.type = type
         self.value = value
         self.argument = argument
+        self.dimentions = dimentions
 
     def __str__(self):
-        return self.type + " " + self.value + " <- " + str(self.argument)
+        d = ""
+        if self.dimentions is not None:
+            d = "["
+            d += ", ".join(str(dim) for dim in self.dimentions)
+            d += "]"
+        return self.type + " " + self.value + d + " <- " + str(self.argument)
 
     def rename_operands(self, name, version):
         if isinstance(self.argument, IdOperand):
@@ -254,14 +164,20 @@ class AtomicAssign(IR):
 
 
 class UnaryAssign(IR):
-    def __init__(self, type, value, op, argument):
+    def __init__(self, type, value, op, argument, dimentions):
         self.type = type
         self.value = value
         self.op = op
         self.arg = argument
+        self.dimentions = dimentions
 
     def __str__(self):
-        return self.type + " " + self.value + " <- " + self.op + " " + str(self.arg)
+        d = ""
+        if self.dimentions is not None:
+            d = "["
+            d += ", ".join(str(dim) for dim in self.dimentions)
+            d += "]"
+        return self.type + " " + self.value + d + " <- " + self.op + " " + str(self.arg)
 
     def rename_operands(self, name, version):
         pass
@@ -315,15 +231,21 @@ class UnaryAssign(IR):
 
 
 class BinaryAssign(IR):
-    def __init__(self, type, value, op, left, right):
+    def __init__(self, type, value, op, left, right, dimentions):
         self.type = type
         self.value = value
         self.op = op
         self.left = left
         self.right = right
+        self.dimentions = dimentions
 
     def __str__(self):
-        return self.type + " " + self.value + " <- " + str(self.left) + " " + self.op + " " + str(self.right)
+        d = ""
+        if self.dimentions is not None:
+            d = "["
+            d += ", ".join(str(dim) for dim in self.dimentions)
+            d += "]"
+        return self.type + " " + self.value + d + " <- " + str(self.left) + " " + self.op + " " + str(self.right)
 
     def rename_operands(self, name, version):
         if isinstance(self.left, IdOperand):
@@ -418,13 +340,13 @@ class BinaryAssign(IR):
     def simplify(self):
         if self.op == "+":
             if isinstance(self.left, IntConstantOperand) and self.left.value == 0:
-                return AtomicAssign(self.type, self.value, self.right)
+                return AtomicAssign(self.type, self.value, self.right, self.dimentions)
             if isinstance(self.right, IntConstantOperand) and self.right.value == 0:
-                return AtomicAssign(self.type, self.value, self.left)
+                return AtomicAssign(self.type, self.value, self.left, self.dimentions)
 
         if self.op == "-":
             if isinstance(self.right, IntConstantOperand) and self.right.value == 0:
-                return AtomicAssign(self.type, self.value, self.left)
+                return AtomicAssign(self.type, self.value, self.left, self.dimentions)
 
         if self.op == "div" or self.op == "mod":
             if isinstance(self.right, IntConstantOperand) and self.right.value == 0:
@@ -433,26 +355,26 @@ class BinaryAssign(IR):
         if self.op == "and":
             if isinstance(self.left, BoolConstantOperand):
                 if not self.left.value:
-                    return AtomicAssign(self.type, self.value, BoolConstantOperand(False))
+                    return AtomicAssign(self.type, self.value, BoolConstantOperand(False), self.dimentions)
                 else:
-                    return AtomicAssign(self.type, self.value, self.right)
+                    return AtomicAssign(self.type, self.value, self.right, self.dimentions)
             if isinstance(self.right, BoolConstantOperand):
                 if not self.right.value:
-                    return AtomicAssign(self.type, self.value, BoolConstantOperand(False))
+                    return AtomicAssign(self.type, self.value, BoolConstantOperand(False), self.dimentions)
                 else:
-                    return AtomicAssign(self.type, self.value, self.left)
+                    return AtomicAssign(self.type, self.value, self.left, self.dimentions)
 
         if self.op == "or":
             if isinstance(self.left, BoolConstantOperand):
                 if not self.left.value:
-                    return AtomicAssign(self.type, self.value, self.right)
+                    return AtomicAssign(self.type, self.value, self.right, self.dimentions)
                 else:
-                    return AtomicAssign(self.type, self.value, BoolConstantOperand(True))
+                    return AtomicAssign(self.type, self.value, BoolConstantOperand(True), self.dimentions)
             if isinstance(self.right, BoolConstantOperand):
                 if not self.right.value:
-                    return AtomicAssign(self.type, self.value, self.left)
+                    return AtomicAssign(self.type, self.value, self.left, self.dimentions)
                 else:
-                    return AtomicAssign(self.type, self.value, self.left)
+                    return AtomicAssign(self.type, self.value, self.left, self.dimentions)
         return self
 
 
