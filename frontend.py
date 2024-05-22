@@ -26,6 +26,10 @@ OTHER_DECLS = pe.NonTerminal("OTHER_DECLS")
 VAR_DECL_INIT = pe.NonTerminal("VAR_DECL_INIT")
 ASSIGN_DECL = pe.NonTerminal("ASSIGN_DECL")
 ASSIGN = pe.NonTerminal("ASSIGN")
+POSSIBLE_ARRAY_DECL = pe.NonTerminal("POSSIBLE_ARRAY_DECL")
+ARRAY_DECL = pe.NonTerminal("ARRAY_DECL")
+OTHER_DIMENTIONS_DECL = pe.NonTerminal("OTHER_DIMENTIONS_DECL")
+
 
 BLOCK = pe.NonTerminal("BLOCK")
 ACTIONS = pe.NonTerminal("ACTIONS")
@@ -65,7 +69,7 @@ CONSTANT = pe.NonTerminal("CONSTANT")
 AND_OP = pe.NonTerminal("AND_OP")
 OR_OP = pe.NonTerminal("OR_OP")
 ID = pe.Terminal("ID", r'[A-Za-z][A-Za-z0-9]*', str)
-NUM_CONST = pe.Terminal("NUM_CONST", r'[0-9]+', int, priority=7)
+NUM_CONST = pe.Terminal("NUM_CONST", r'[0-9]+(\.[0-9]+)?', float, priority=7)
 
 tmp_version = 0
 
@@ -191,12 +195,12 @@ class BoolType(Type):
 
 
 @dataclass
-class VoidType(Type):
+class FloatType(Type):
     def __eq__(self, other):
         return type(self) == type(other) or type(other) == type(AnyType)
 
     def __str__(self):
-        return "void"
+        return "float"
 
 
 @dataclass
@@ -328,8 +332,6 @@ class FuncCall(Expression):
             self.type = IntType()
             return
         f = defined_funcs[self.name]
-        if f.return_type == VoidType():
-            raise SemanticError(self.pos, "Нельзя использовать void функцию в выражениях")
         for i, arg in enumerate(self.args):
             arg.check(defined_funcs, named_args, decl_vars)
             if arg.type != f.args[i].type:
@@ -410,8 +412,6 @@ class FuncCallAction(Action):
             raise SemanticError(self.pos, "Нельзя вызывать input как void")
         f = defined_funcs[self.name]
         if f is not None:
-            if f.return_type != VoidType:
-                raise SemanticError(self.pos, "как действие можно вызвать только функцию с void")
             for i, arg in enumerate(self.args):
                 arg.check(defined_funcs, named_args, decl_vars)
                 if arg.type != f.args[i].type:
@@ -832,8 +832,6 @@ class ReturnAction(Action):
         return ReturnAction(exp, res_coord)
 
     def check(self, defined_funcs, named_args, decl_vars, labels, is_loop, func_type):
-        if isinstance(func_type, VoidType):
-            raise SemanticError(self.pos, "в void функции нельзя return")
         self.exp.check(defined_funcs, named_args, decl_vars)
         if self.exp.type != func_type:
             raise SemanticError(self.pos, "тип return не совпадает с возвращаемым типом")
@@ -917,7 +915,7 @@ class FuncDef:
         for action in self.block:
             action.check(defined_funcs, named_args, decl_vars, labels, is_loop, self.return_type)
 
-        if not isinstance(self.return_type, VoidType) and not self.__check_return():
+        if not self.__check_return():
             raise SemanticError(self.pos, f"функции {self.name} не обнаружено return")
 
     def generate(self):
@@ -978,10 +976,10 @@ PROGRAM |= lambda: []
 DECL |= FUN_DECL
 
 FUN_DECL |= TYPE_F, ID, '(', PARAMS, ')', BLOCK, FuncDef.create
-TYPE_F |= 'void', VoidType
 TYPE_F |= TYPE
 TYPE |= 'int', IntType
 TYPE |= 'bool', BoolType
+TYPE |= 'float', FloatType
 PARAMS |= lambda: []
 PARAMS |= PARAM_LIST
 PARAM_LIST |= PARAM, OTHER_PARAMS, lambda x, y: [x] + y
@@ -1073,7 +1071,6 @@ MUTABLE |= ID, '(', CALL_PARAMS, ')', FuncCall.create
 def parse(file):
     p = pe.Parser(ENTRY)
     assert p.is_lalr_one()
-    # print("Фух")
     p.add_skipped_domain('\\s')
     p.add_skipped_domain('//[^\n]*\n')
     try:

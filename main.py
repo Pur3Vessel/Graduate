@@ -4,7 +4,6 @@ from frontend import *
 
 def opt_pass(tree):
     changed = False
-    print("pass пошел")
     for func in tree.funcDefs:
         # Обход в глубину
         builder.contexts[func.name].graph.dfs()
