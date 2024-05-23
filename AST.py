@@ -30,7 +30,7 @@ def is_int(value):
 def is_atomic(expression):
     return isinstance(expression, IdUse) or isinstance(expression, BoolConst) or isinstance(expression,
                                                                                             NumConst) or isinstance(
-        expression, FuncCall)
+        expression, FuncCall) or isinstance(expression, ArrayUse)
 
 
 def place_assigns(assigns):
@@ -63,6 +63,23 @@ def simplify_expression(expression):
             call = FuncCall(expression.name, new_args, pe.Fragment(pe.Position(0), pe.Position(0)))
             call.type = expression.type
             new_assign = AssignAction(new_tmp, call, pe.Fragment(pe.Position(0), pe.Position(0)))
+            new_assign.type = expression.type
+            new_assigns.append(new_assign)
+            return new_assigns, new_tmp
+        elif isinstance(expression, ArrayUse):
+            new_indexes = []
+            new_assigns = []
+            for idx in expression.indexing:
+                new_idx_assigns, new_idx_tmp = simplify_expression(idx)
+                new_assigns += new_idx_assigns
+                new_idx = IdUse(new_idx_tmp, pe.Fragment(pe.Position(0), pe.Position(0)))
+                new_idx.type = IntType()
+                new_indexes.append(new_idx)
+            new_tmp = "tmp$" + str(tmp_version)
+            tmp_version += 1
+            use = ArrayUse(expression.name, new_indexes, pe.Fragment(pe.Position(0), pe.Position(0)))
+            use.type = expression.type
+            new_assign = AssignAction(new_tmp, use, pe.Fragment(pe.Position(0), pe.Position(0)))
             new_assign.type = expression.type
             new_assigns.append(new_assign)
             return new_assigns, new_tmp
@@ -284,7 +301,7 @@ class IdUse(Expression):
 @dataclass
 class ArrayUse(Expression):
     name: str
-    indexing: list[Expression]
+    indexing: [Expression]
     pos: pe.Fragment
 
     @pe.ExAction
@@ -386,12 +403,12 @@ class VarDeclAction(Action):
         for init in self.varDeclInits:
             builder.context.names.add(init.name)
             if isinstance(init.assign, EmptyExpression):
-                new_IR = AtomicAssign(type, init.name, IntConstantOperand(0))
+                new_IR = AtomicAssign(type, init.name, IntConstantOperand(0), None)
                 builder.add_expression(new_IR)
             else:
                 new_assigns, new_tmp = simplify_expression(init.assign)
                 place_assigns(new_assigns)
-                ass_IR = AtomicAssign(type, init.name, IdOperand(new_tmp))
+                ass_IR = AtomicAssign(type, init.name, IdOperand(new_tmp), None)
                 builder.add_expression(ass_IR)
 
 
@@ -399,7 +416,7 @@ class VarDeclAction(Action):
 class ArrayDeclAction(Action):
     type: Type
     name: str
-    dimentions: list[float]
+    dimentions: [float]
     init: NestedList
     pos: pe.Fragment
 
@@ -420,7 +437,9 @@ class ArrayDeclAction(Action):
         decl_arrays[self.name] = (self.type, len(self.dimentions))
 
     def generate(self):
-        pass
+        type = str(self.type)
+        ir = ArrayInitInstruction(type, self.name, self.dimentions, self.init)
+        builder.add_expression(ir)
 
 
 @dataclass
@@ -448,30 +467,38 @@ class AssignAction(Action):
         value = self.name
         if is_atomic(self.assign):
             if isinstance(self.assign, IdUse):
-                return AtomicAssign(type, value, IdOperand(self.assign.name))
+                return AtomicAssign(type, value, IdOperand(self.assign.name), None)
             elif isinstance(self.assign, FuncCall):
                 args = []
                 for arg in self.assign.args:
                     args.append(IdOperand(arg.name))
-                return AtomicAssign(type, value, FuncCallOperand(self.assign.name, args))
+                return AtomicAssign(type, value, FuncCallOperand(self.assign.name, args), None)
+            elif isinstance(self.assign, ArrayUse):
+                idx = []
+                for i in self.assign.indexing:
+                    idx.append(IdOperand(i.name))
+                return AtomicAssign(type, value, ArrayUseOperand(self.assign.name, idx), None)
             elif isinstance(self.assign, BoolConst):
-                return AtomicAssign(type, value, BoolConstantOperand(self.assign.value))
+                return AtomicAssign(type, value, BoolConstantOperand(self.assign.value), None)
             elif isinstance(self.assign, NumConst):
-                return AtomicAssign(type, value, IntConstantOperand(self.assign.value))
+                if is_int(self.assign.value):
+                    return AtomicAssign(type, value, IntConstantOperand(self.assign.value), None)
+                else:
+                    return AtomicAssign(type, value, FloatConstantOperand(self.assign.value), None)
             else:
                 print("что-то не так")
         elif isinstance(self.assign, BinOp):
             return BinaryAssign(type, value, self.assign.op, IdOperand(self.assign.left.name),
-                                IdOperand(self.assign.right.name))
+                                IdOperand(self.assign.right.name), None)
         elif isinstance(self.assign, UnaryOp):
-            return UnaryAssign(type, value, self.assign.op, IdOperand(self.assign.exp.name))
+            return UnaryAssign(type, value, self.assign.op, IdOperand(self.assign.exp.name), None)
         else:
             print("Что-то не так")
 
     def generate(self):
         new_assigns, new_tmp = simplify_expression(self.assign)
         place_assigns(new_assigns)
-        ass_IR = AtomicAssign(str(self.assign.type), self.name, IdOperand(new_tmp))
+        ass_IR = AtomicAssign(str(self.assign.type), self.name, IdOperand(new_tmp), None)
         builder.add_expression(ass_IR)
 
 
@@ -503,7 +530,15 @@ class ArrayAssignAction(Action):
                 raise SemanticError(self.pos, "Индексация не целым числом")
 
     def generate(self):
-        pass
+        new_assigns, new_tmp = simplify_expression(self.assign)
+        place_assigns(new_assigns)
+        new_indexes = []
+        for idx in self.indexing:
+            new_idx_assigns, new_idx_tmp = simplify_expression(idx)
+            place_assigns(new_idx_assigns)
+            new_indexes.append(IdOperand(new_idx_tmp))
+        new_IR = AtomicAssign(self.assign.type, self.name, IdOperand(new_tmp), new_indexes)
+        builder.add_expression(new_IR)
 
 
 class EmptyElse(Action):
@@ -808,7 +843,7 @@ class ForAction(Action):
 
         init_assigns, init_tmp = simplify_expression(self.start)
         place_assigns(init_assigns)
-        init_IR = AtomicAssign("int", self.var_name, IdOperand(init_tmp))
+        init_IR = AtomicAssign("int", self.var_name, IdOperand(init_tmp), None)
         builder.add_expression(init_IR)
         builder.context.names.add(self.var_name)
 
@@ -816,7 +851,7 @@ class ForAction(Action):
         place_assigns(end_assigns)
         new_tmp = "tmp$" + str(tmp_version)
         tmp_version += 1
-        cond_IR = BinaryAssign("bool", new_tmp, "<", IdOperand(self.var_name), IdOperand(end_tmp))
+        cond_IR = BinaryAssign("bool", new_tmp, "<", IdOperand(self.var_name), IdOperand(end_tmp), None)
         builder.add_expression(cond_IR)
         end_IR = IsTrueInstruction(IdOperand(new_tmp))
         builder.add_expression(end_IR)
@@ -829,7 +864,7 @@ class ForAction(Action):
 
         step_assigns, step_tmp = simplify_expression(self.step)
         place_assigns(step_assigns)
-        step_IR = BinaryAssign("int", self.var_name, "+", IdOperand(self.var_name), IdOperand(step_tmp))
+        step_IR = BinaryAssign("int", self.var_name, "+", IdOperand(self.var_name), IdOperand(step_tmp), None)
         builder.add_expression(step_IR)
         builder.context.latches.append(latch)
 
@@ -837,7 +872,7 @@ class ForAction(Action):
         place_assigns(end_assigns)
         new_tmp = "tmp$" + str(tmp_version)
         tmp_version += 1
-        cond_IR = BinaryAssign("bool", new_tmp, "<", IdOperand(self.var_name), IdOperand(end_tmp))
+        cond_IR = BinaryAssign("bool", new_tmp, "<", IdOperand(self.var_name), IdOperand(end_tmp), None)
         builder.add_expression(cond_IR)
         end_IR = IsTrueInstruction(IdOperand(new_tmp))
         builder.add_expression(end_IR)
@@ -943,6 +978,10 @@ class FuncDef:
         scalar_args = dict([(arg.name, arg.type) for arg in self.args if len(arg.dimentions) == 0])
         array_args = dict(
             [(arg.name, (arg.type, len(arg.dimentions))) for arg in self.args if len(arg.dimentions) != 0])
+        for a in array_args:
+            for i in a.dimentions:
+                if i in scalar_args or i in array_args:
+                    raise SemanticError(self.pos, f"у функции {self.name} найдены одноименные параметры")
         decl_vars = {}
         decl_arrays = {}
         labels = {}

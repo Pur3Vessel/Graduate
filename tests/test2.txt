@@ -1,33 +1,14 @@
-int arithClean(int a) {
-    int b = 5;
-    if (b > 3) {
-        b = 9;
-    } else {
-        print(b);
-    }
-    return (a * b) mod 99;
-}
-
-int arithDirt(int a) {
-    print(a);
-    return a mod 99;
-}
-
 
 int main() {
-    int i = 0;
-    int c = 5;
-    do {
-        int j = i;
-        do  {
-            int d = arithClean(5);
-            int a = arithClean(i);
-            int b = arithDirt(i);
-            c = c * a div d;
-            j = j + 1;
-        } while (j < 10)
-        i = i + 1;
-    } while (i < 10)
-    print(c);
-    return 0;
+    float a[3, 3] = {{1.1, 1.2, 2.3}, {5.5, 6.4, 3.3}, {1.7, 1.5, 5.9}};
+    float b[3, 3] = {{1.1, 1.2, 2.3}, {5.5, 6.4, 3.3}, {1.7, 1.5, 5.9}};
+    float c[3, 3];
+    for (i = 0 to 3) {
+        for (j = 0 to 3) {
+            for (k = 0 to 3) {
+                c[i, j] = c[i, j] + a[i, k] * b[k, j];
+            }
+        }
+    }
+    return c[2, 2];
 }

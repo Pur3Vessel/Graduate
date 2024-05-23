@@ -1,19 +1,10 @@
-int arith(int a) {
-    return a * 2;
-}
-
 
 int main() {
-    int i = 0;
-    int j = 1;
-    a:
-    int c = input();
-    int d = input();
-    int b = arith(j);
-    print(b);
-    if (i < 10) {
-        i = i + c;
-        goto a;
+    float b = 5.3;
+    int c = 2;
+    for (i = 0 to 10) {
+        float a = 3.2;
+        b = b * c * i + a * a;
     }
-    return 0;
+    return b;
 }

@@ -111,7 +111,7 @@ class Context:
         return invar_order
 
     def is_const_operand(self, operand):
-        return isinstance(operand, IntConstantOperand) or isinstance(operand, BoolConstantOperand)
+        return isinstance(operand, IntConstantOperand) or isinstance(operand, BoolConstantOperand) or isinstance(operand, FloatConstantOperand)
 
     def check_inv_operand(self, operand, block, cycle, instruction, inst_invar):
         if self.is_const_operand(operand):
@@ -283,7 +283,7 @@ class Context:
                 SSAWL.add((v, succ))
 
     def visit_inst(self, v, instr, lattice, flowWL, SSAWL):
-        if isinstance(instr, (FuncDefInstruction, FuncCallInstruction, ReturnInstruction)):
+        if isinstance(instr, (FuncDefInstruction, ReturnInstruction)):
             if len(v.output_vertexes) != 0:
                 flowWL.add((v, v.output_vertexes[0]))
             return
@@ -310,8 +310,7 @@ class Context:
         return changed
 
     def is_critical_instruction(self, instruction):
-        return isinstance(instruction, (IsTrueInstruction, ReturnInstruction)) or (
-                isinstance(instruction, FuncCallInstruction) and not self.is_pure_function(instruction.name)) or (
+        return isinstance(instruction, (IsTrueInstruction, ReturnInstruction)) or not self.is_pure_function(instruction.name) or (
                        isinstance(instruction, AtomicAssign) and isinstance(instruction.argument,
                                                                             FuncCallOperand) and not self.is_pure_function(
                    instruction.argument.name))

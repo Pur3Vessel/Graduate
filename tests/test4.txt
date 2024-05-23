@@ -1,14 +1,18 @@
-int main() {
-    int a = 2;
-    int d = 3;
-    loop:
-    int f = a + d;
-    int g = 5;
-    a = g - d;
-    if (f <= g) {
-        f = g + 1;
-        print(f);
-        goto loop;
+int v(a[u1], b[u2], c[u3], d[u4], e[u5]) {
+    for (i = 0 to u1) {
+        a[i] = c[i] * b[i];
+        b[i + 1] = d[i] - e[i];
+        c[i + 1] = a[i] * e[i];
     }
-    return 0;
+    return c[u2 - 1];
+}
+
+
+int main() {
+    int a[5] = {1, 2, 3, 4 ,5};
+    int b[6] = {1, 2, 3, 4, 5, 6};
+    int c[6]  = {1, 2, 3, 4, 5, 6};
+    int d[5] =  = {1, 2, 3, 4, 5};
+    int e[5] =  {1, 2, 3, 4, 5};
+    return v(a, b, c, d, e);
 }

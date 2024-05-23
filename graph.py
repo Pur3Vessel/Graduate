@@ -170,7 +170,6 @@ class Graph:
                     if v.idom != elem:
                         self.DF[elem].add(v)
 
-
     def dfs(self):
         self.assign2point = {}
         self.point2assign = {}
@@ -217,7 +216,7 @@ class Graph:
         for i, v in enumerate(self.vertexes):
             if not v.checked:
                 non_reachable.append(i)
-                for out_v in  v.output_vertexes:
+                for out_v in v.output_vertexes:
                     in_v = self.which_pred(out_v, v)
                     del out_v.input_vertexes[in_v]
         for i in sorted(non_reachable, reverse=True):
@@ -284,10 +283,6 @@ class Graph:
             result.append(start)
             return result
 
-    def print_dfs_numbers(self):
-        for v in self.vertexes:
-            print(v.dfs_number)
-
     def build_dominators_tree(self):
         self.clean_dominators()
         first = self.vertexes[0]
@@ -319,15 +314,12 @@ class Graph:
             if elem.idom is not None:
                 elem.idom.add_child(elem)
 
-    def build_postdominators_tree(self):
-        pass
-
     def get_all_assign(self, s):
         result = set()
         for elem in self.vertexes:
             for opp in elem.block:
                 if (isinstance(opp, UnaryAssign) or isinstance(opp, BinaryAssign) or isinstance(opp,
-                                                                                                AtomicAssign)) and opp.value == s:
+                                                                                                AtomicAssign)) and opp.value == s and opp.dimentions is None:
                     result.add(elem)
         return result
 
@@ -539,7 +531,7 @@ class Graph:
     def is_pure_function(self):
         for v in self.vertexes:
             for instr in v.block:
-                if (isinstance(instr, FuncCallInstruction) and instr.name == "print") or (
+                if (isinstance(instr, int) and instr.name == "print") or (
                         isinstance(instr, AtomicAssign) and isinstance(instr.value,
                                                                        FuncCallOperand) and instr.value.name == "input"):
                     return False
