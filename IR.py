@@ -121,23 +121,23 @@ class AtomicAssign(IR):
         return [self.argument]
 
     def is_use_op(self, value):
-        if isinstance(self.argument, IntConstantOperand) or isinstance(self.argument, BoolConstantOperand):
+        if isinstance(self.argument, IntConstantOperand) or isinstance(self.argument, BoolConstantOperand) or isinstance(self.argument, FloatConstantOperand):
             return False
-        if isinstance(self.argument, FuncCallOperand):
+        if isinstance(self.argument, FuncCallOperand) or isinstance(self.argument, ArrayUseOperand):
             return self.argument.is_use_op(value)
         return self.argument.value == value
 
     def lat_eval(self, lattice):
-        if isinstance(self.argument, FuncCallOperand):
+        if isinstance(self.argument, FuncCallOperand) or isinstance(self.argument, ArrayUseOperand):
             return ConstantLatticeElement.LOW
-        if isinstance(self.argument, IntConstantOperand) or isinstance(self.argument, BoolConstantOperand):
+        if isinstance(self.argument, IntConstantOperand) or isinstance(self.argument, BoolConstantOperand) or isinstance(self.argument, FloatConstantOperand):
             return self.argument.value
         if self.argument.value not in lattice.sl:
             return ConstantLatticeElement.LOW
         return lattice.sl[self.argument.value]
 
     def place_constants(self, lattice):
-        if isinstance(self.argument, FuncCallOperand):
+        if isinstance(self.argument, FuncCallOperand) or isinstance(self.argument, ArrayUseOperand):
             return self.argument.place_constants(lattice)
 
         if isinstance(self.argument, IdOperand):
@@ -146,6 +146,8 @@ class AtomicAssign(IR):
                 if not isinstance(val, ConstantLatticeElement):
                     if type(val) is int:
                         self.argument = IntConstantOperand(val)
+                    elif type(val) is float:
+                        self.argument = FloatConstantOperand(val)
                     else:
                         assert type(val) is bool
                         self.argument = BoolConstantOperand(val)
@@ -157,7 +159,7 @@ class AtomicAssign(IR):
 
     def remove_versions(self):
         self.value = self.value.split("_")[0]
-        if isinstance(self.argument, FuncCallOperand):
+        if isinstance(self.argument, FuncCallOperand) or isinstance(self.argument, ArrayUseOperand):
             self.argument.remove_versions()
         if isinstance(self.argument, IdOperand):
             self.argument = IdOperand(self.argument.value.split("_")[0])
@@ -180,13 +182,16 @@ class UnaryAssign(IR):
         return self.type + " " + self.value + d + " <- " + self.op + " " + str(self.arg)
 
     def rename_operands(self, name, version):
-        pass
+        if isinstance(self.arg, IdOperand):
+            if self.arg.value == name:
+                new_op = IdOperand(name + "_" + str(version))
+                self.arg = new_op
 
     def get_operands(self):
         return [self.arg]
 
     def is_use_op(self, value):
-        if isinstance(self.arg, (IntConstantOperand, BoolConstantOperand)):
+        if isinstance(self.arg, (IntConstantOperand, BoolConstantOperand, FloatConstantOperand)):
             return False
         return self.arg.value == value
 
@@ -199,9 +204,9 @@ class UnaryAssign(IR):
             if isinstance(v, ConstantLatticeElement):
                 return v
             return not v
-        if self.type == "int":
+        if self.type == "int" or self.type == "float":
             assert self.op == "-"
-            if isinstance(self.arg, IntConstantOperand):
+            if isinstance(self.arg, (IntConstantOperand, FloatConstantOperand)):
                 return -self.arg.value
             v = lattice.sl[self.arg.value]
             if isinstance(v, ConstantLatticeElement):
@@ -265,12 +270,12 @@ class BinaryAssign(IR):
         return self.left.value == value or self.right.value == value
 
     def lat_eval(self, lattice):
-        if isinstance(self.left, IntConstantOperand) or isinstance(self.left, BoolConstantOperand):
+        if isinstance(self.left, IntConstantOperand) or isinstance(self.left, BoolConstantOperand) or isinstance(self.left, FloatConstantOperand):
             op1 = self.left.value
         else:
             op1 = lattice.sl[self.left.value]
 
-        if isinstance(self.right, IntConstantOperand) or isinstance(self.right, BoolConstantOperand):
+        if isinstance(self.right, IntConstantOperand) or isinstance(self.right, BoolConstantOperand) or isinstance(self.left, FloatConstantOperand):
             op2 = self.right.value
         else:
             op2 = lattice.sl[self.right.value]
@@ -313,6 +318,8 @@ class BinaryAssign(IR):
                 if not isinstance(val, ConstantLatticeElement):
                     if type(val) is int:
                         self.left = IntConstantOperand(val)
+                    elif type(val) is float:
+                        self.left = FloatConstantOperand(val)
                     else:
                         assert type(val) is bool
                         self.left = BoolConstantOperand(val)
@@ -322,6 +329,8 @@ class BinaryAssign(IR):
                 if not isinstance(val, ConstantLatticeElement):
                     if type(val) is int:
                         self.right = IntConstantOperand(val)
+                    elif type(val) is float:
+                        self.right = FloatConstantOperand(val)
                     else:
                         assert type(val) is bool
                         self.right = BoolConstantOperand(val)
@@ -396,19 +405,20 @@ class PhiAssign(IR):
         return self.arguments
 
     def place_constants(self, lattice):
-        changed = False
-        for i, arg in enumerate(self.arguments):
-            if isinstance(arg, IdOperand):
-                if arg in lattice.sl:
-                    val = lattice.sl[arg.value]
-                    if not isinstance(val, ConstantLatticeElement):
-                        if type(val) is int:
-                            self.arguments[i] = IntConstantOperand(val)
-                        else:
-                            assert type(val) is bool
-                            self.arguments[i] = BoolConstantOperand(val)
-                        changed = True
-        return changed
+        #changed = False
+        #for i, arg in enumerate(self.arguments):
+        #    if isinstance(arg, IdOperand):
+        #        if arg in lattice.sl:
+        #            val = lattice.sl[arg.value]
+        #            if not isinstance(val, ConstantLatticeElement):
+        #                if type(val) is int:
+        #                    self.arguments[i] = IntConstantOperand(val)
+        #                else:
+        #                    assert type(val) is bool
+        #                    self.arguments[i] = BoolConstantOperand(val)
+        #                changed = True
+        #return changed
+        return False
 
     def is_def(self, op):
         return op.value == self.value
@@ -438,6 +448,8 @@ class ReturnInstruction(IR):
                 if not isinstance(val, ConstantLatticeElement):
                     if type(val) is int:
                         self.value = IntConstantOperand(val)
+                    elif type(val) is float:
+                        self.value = FloatConstantOperand(val)
                     else:
                         assert type(val) is bool
                         self.value = BoolConstantOperand(val)
@@ -476,6 +488,8 @@ class IsTrueInstruction(IR):
                 if not isinstance(val, ConstantLatticeElement):
                     if type(val) is int:
                         self.value = IntConstantOperand(val)
+                    elif type(val) is float:
+                        self.value = FloatConstantOperand(val)
                     else:
                         assert type(val) is bool
                         self.value = BoolConstantOperand(val)

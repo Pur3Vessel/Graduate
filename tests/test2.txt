@@ -10,5 +10,6 @@ int main() {
             }
         }
     }
-    return c[2, 2];
+    int d = 3;
+    return c[d - 1, 2];
 }

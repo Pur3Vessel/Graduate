@@ -14,12 +14,12 @@ class ConstantLattice:
         self.sl[value] = ConstantLatticeElement.HIGH
 
     def meet(self, value1, value2):
-        if type(value1) != int and not isinstance(value1, ConstantLatticeElement) and type(value1) != bool:
+        if type(value1) != int and not isinstance(value1, ConstantLatticeElement) and type(value1) != bool and type(value1) != float:
             if value1 not in self.sl:
                 value1 = ConstantLatticeElement.LOW
             else:
                 value1 = self.sl[value1]
-        if type(value2) != int and not isinstance(value2, ConstantLatticeElement) and type(value2) != bool:
+        if type(value2) != int and not isinstance(value2, ConstantLatticeElement) and type(value2) != bool and type(value2) != float:
             if value2 not in self.sl:
                 value2 = ConstantLatticeElement.LOW
             else:

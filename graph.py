@@ -438,13 +438,6 @@ class Graph:
                     break
         return blocks
 
-    def get_preheader(self, cycle):
-        header = cycle[1]
-        preheader = None
-        for in_vert in header.input_vertexes:
-            if in_vert.dfs_number == header.dfs_number - 1:
-                preheader = in_vert
-        return preheader
 
     def is_dom(self, v, v1):
         visited = set()
@@ -527,15 +520,6 @@ class Graph:
                 for next_v in current.output_vertexes:
                     if not next_v.checked:
                         stack.append(next_v)
-
-    def is_pure_function(self):
-        for v in self.vertexes:
-            for instr in v.block:
-                if (isinstance(instr, int) and instr.name == "print") or (
-                        isinstance(instr, AtomicAssign) and isinstance(instr.value,
-                                                                       FuncCallOperand) and instr.value.name == "input"):
-                    return False
-        return True
 
     def get_empty_blocks(self):
         blocks = []
