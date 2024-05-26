@@ -1,5 +1,6 @@
 import builder
 from frontend import *
+from register_allocator import *
 
 
 def opt_pass(tree, j):
@@ -30,6 +31,8 @@ def opt_pass(tree, j):
         builder.contexts[func.name].change_numeration()
         # Constant_propagation
         changed = builder.contexts[func.name].constant_propagation() or changed
+        # Copy_propagation
+        changed = builder.contexts[func.name].copy_propagation() or changed
         # Dead code elimination
         changed = builder.contexts[func.name].dead_code_elimination() or changed
 
@@ -58,5 +61,14 @@ if __name__ == "__main__":
         while changed:
             j += 1
             changed = opt_pass(tree, j)
-        print(f"Тест {i} завершился за {j - 1} пассов")
+        print(f"Тест {i} завершился за {j} пассов")
         builder.print_graph(out_file)
+        for func in tree.funcDefs:
+            IFG_scalar = IFG()
+            IFG_scalar.build(builder.contexts[func.name])
+            IFG_file = f"IFG/ifg{i}_{func.name}.txt"
+            IFG_scalar.to_graph(IFG_file)
+            print(IFG_scalar.is_chordal())
+
+
+

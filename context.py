@@ -12,6 +12,7 @@ class Context:
         self.latches = []
         self.after_blocks = []
         self.contexts = {}
+        self.labels_to_live = {}
 
     def set_contexts(self, contexts):
         self.contexts = contexts
@@ -242,6 +243,9 @@ class Context:
                 if isinstance(instr, FuncDefInstruction):
                     for arg in instr.arguments:
                         lattice.sl[arg.name] = ConstantLatticeElement.LOW
+                        if arg.dimentions is not None:
+                            for d in arg.dimentions:
+                                lattice.sl[d] = ConstantLatticeElement.LOW
                 if isinstance(instr, ArrayInitInstruction):
                     lattice.sl[instr.name] = ConstantLatticeElement.LOW
                 if is_assign(instr):
@@ -294,7 +298,8 @@ class Context:
                 SSAWL.add((v, succ))
 
     def visit_inst(self, v, instr, lattice, flowWL, SSAWL):
-        if isinstance(instr, (FuncDefInstruction, ReturnInstruction, ArrayInitInstruction)) or (is_assign(instr) and instr.dimentions is not None):
+        if isinstance(instr, (FuncDefInstruction, ReturnInstruction, ArrayInitInstruction)) or (
+                is_assign(instr) and instr.dimentions is not None):
             if len(v.output_vertexes) != 0:
                 flowWL.add((v, v.output_vertexes[0]))
             return
@@ -322,8 +327,8 @@ class Context:
     def is_critical_instruction(self, instruction):
         return isinstance(instruction,
                           (IsTrueInstruction, ReturnInstruction, ArrayInitInstruction, FuncDefInstruction)) or (
-                    isinstance(instruction,
-                               (AtomicAssign, BinaryAssign, UnaryAssign)) and instruction.dimentions is not None)
+                isinstance(instruction,
+                           (AtomicAssign, BinaryAssign, UnaryAssign)) and instruction.dimentions is not None)
 
     def get_assign_for_op(self, op):
         for v in self.graph.vertexes:
@@ -391,6 +396,22 @@ class Context:
         self.graph.remove_fluous_edges()
         return changed
 
+    def copy_propagation(self):
+        changed = False
+        names = {}
+        for v in self.graph.vertexes:
+            for instruction in v.block:
+                if isinstance(instruction, AtomicAssign) and isinstance(instruction.argument, IdOperand) and instruction.dimentions is None:
+                    names[instruction.value] = instruction.argument.value
+
+        for name in names.keys():
+            for v in self.graph.vertexes:
+                for instruction in v.block:
+                    if instruction.is_use_op(name) and not isinstance(instruction, PhiAssign):
+                        instruction.replace_operand(name, names[name])
+                        changed = True
+        return changed
+
     def remove_ssa(self):
         self.remove_phi()
         self.remove_versions()
@@ -414,5 +435,156 @@ class Context:
         self.names = set()
         for v in self.graph.vertexes:
             for instr in v.block:
-                if is_assign(instr) and len(instr.value.split("$")) == 1:
+                if is_assign(instr) and instr.dimentions is None and len(instr.value.split("$")) == 1:
                     self.names.add(instr.value)
+
+    def get_variables(self):
+        variables = []
+        for v in self.graph.vertexes:
+            for instruction in v.block:
+                if isinstance(instruction,
+                              (AtomicAssign, BinaryAssign, UnaryAssign)) and instruction.dimentions is None:
+                    variables.append(instruction.value)
+                if isinstance(instruction, PhiAssign):
+                    variables.append(instruction.value)
+                if isinstance(instruction, FuncDefInstruction):
+                    for arg in instruction.arguments:
+                        if arg.dimentions is None:
+                            variables.append(arg.name)
+                        else:
+                            for d in arg.dimentions:
+                                variables.append(d)
+        return variables
+
+    def get_assign_instruction_and_block(self, var):
+        for v in self.graph.vertexes:
+            for instrunction in v.block:
+                if isinstance(instrunction, (AtomicAssign, UnaryAssign, BinaryAssign)) and instrunction.dimentions is None and instrunction.value == var:
+                    return instrunction, v
+                if isinstance(instrunction, PhiAssign) and instrunction.value == var:
+                    return instrunction, v
+                if isinstance(instrunction, FuncDefInstruction):
+                    for arg in instrunction.arguments:
+                        if arg.dimentions is None and arg.name == var:
+                            return instrunction, v
+                        if arg.dimentions is not None:
+                            for d in arg.dimentions:
+                                if d == var:
+                                    return instrunction, v
+
+    def add_live(self, label, var):
+        if label not in self.labels_to_live.keys():
+            self.labels_to_live[label] = set()
+        self.labels_to_live[label].add(var)
+
+    def add_live_labels_list(self, labels, var):
+        for label in labels:
+            self.add_live(label, var)
+
+    def build_lives_dfs_last(self, var, labels, vertex, pred, assign):
+        breakable = False
+        for instruction in vertex.block:
+            if instruction == assign:
+                breakable = True
+                break
+            label = self.graph.instructions_to_labels[instruction]
+            labels.append(label)
+            if labels.count(label) > 5:
+                breakable = True
+                break
+            if isinstance(instruction, PhiAssign):
+                is_use = instruction.is_use_op_for_label(var, self.which_pred(vertex, pred))
+            else:
+                is_use = instruction.is_use_op(var)
+            if is_use:
+                self.add_live_labels_list(labels, var)
+                breakable = True
+                break
+        if not breakable:
+            for out_v in vertex.output_vertexes:
+                self.build_lives_dfs(var, deepcopy(labels), out_v, vertex, assign)
+
+    def build_lives_dfs(self, var, labels, vertex, pred, assign):
+        breakable = False
+        last = False
+        for instruction in vertex.block:
+            if instruction == assign:
+                breakable = True
+                break
+            label = self.graph.instructions_to_labels[instruction]
+            if label in labels and label != labels[-1]:
+                last = True
+                break
+            labels.append(label)
+            if isinstance(instruction, PhiAssign):
+                is_use = instruction.is_use_op_for_label(var, self.which_pred(vertex, pred))
+            else:
+                is_use = instruction.is_use_op(var)
+            if is_use:
+                self.add_live_labels_list(labels, var)
+        if not breakable:
+            if last:
+                self.build_lives_dfs_last(var, deepcopy(labels), vertex, pred, assign)
+            else:
+                for out_v in vertex.output_vertexes:
+                    self.build_lives_dfs(var, deepcopy(labels), out_v, vertex, assign)
+
+    def build_lives(self):
+        self.graph.labels_dfs()
+        variables = self.get_variables()
+
+        for var in variables:
+            labels = []
+            assign, v = self.get_assign_instruction_and_block(var)
+            find_assign = False
+            for instruction in v.block:
+                if instruction == assign:
+                    find_assign = True
+                    continue
+                if not find_assign:
+                    continue
+                if not isinstance(instruction, PhiAssign):
+                    labels.append(self.graph.instructions_to_labels[instruction])
+                    if instruction.is_use_op(var):
+                        self.add_live_labels_list(labels, var)
+            for out_v in v.output_vertexes:
+                self.build_lives_dfs(var, deepcopy(labels), out_v, v, assign)
+
+    def not_phi_once(self, label, var, other_var):
+        instructions = []
+        for v in self.graph.vertexes:
+            for instruction in v.block:
+                if self.graph.instructions_to_labels[instruction] == label and isinstance(instruction, PhiAssign):
+                    instructions.append(instruction)
+        var_number = -1
+        other_var_number = -1
+        for instruction in instructions:
+            var_number = instruction.operand_number(var)
+            other_var_number = instruction.operand_number(other_var)
+        return var_number == other_var_number
+    #def get_use_blocks(self, var):
+    #    use_blocks = []
+    #    for v in self.graph.vertexes:
+    #        for instruction in v.block:
+    #            if instruction.is_use_op(var):
+    #                use_blocks.append(v)
+    #                break
+    #    return use_blocks
+
+    #def get_liveness(self, var):
+    #    self.graph.build_dominators_tree()
+    #    liveness = set()
+    #    assign_block = self.get_assign_block(var)
+    #    use_blocks = self.get_use_blocks(var)
+    #    liveness.add(assign_block.number)
+    #    for b in use_blocks:
+    #        if b.number == assign_block.number:
+    #            continue
+    #        liveness.add(b.number)
+    #        idom = b.idom
+    #        while True:
+    #            if idom is None or idom.number == assign_block.number:
+    #                break
+    #            liveness.add(idom.number)
+    #            idom = idom.idom
+    #    return liveness

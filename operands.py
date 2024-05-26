@@ -83,6 +83,24 @@ class ArrayUseOperand(Operand):
             if isinstance(arg, IdOperand):
                 self.indexing[i] = IdOperand(arg.value.split("_")[0])
 
+    def replace_operand(self, name, new_name):
+        new_args = []
+        for arg in self.indexing:
+            if arg.value == name:
+                new_args.append(IdOperand(new_name))
+            else:
+                new_args.append(arg)
+        self.indexing = new_args
+
+    def rename_operands(self, name, version):
+        new_args = []
+        for arg in self.indexing:
+            if arg.value == name:
+                new_args.append(IdOperand(name + "_" + str(version)))
+            else:
+                new_args.append(arg)
+        self.indexing = new_args
+
 
 class FuncCallOperand(Operand):
     def __init__(self, func_name, arguments):
@@ -128,6 +146,24 @@ class FuncCallOperand(Operand):
         for i, arg in enumerate(self.args):
             if isinstance(arg, IdOperand):
                 self.args[i] = IdOperand(arg.value.split("_")[0])
+
+    def replace_operand(self, name, new_name):
+        new_args = []
+        for arg in self.args:
+            if arg.value == name:
+                new_args.append(IdOperand(new_name))
+            else:
+                new_args.append(arg)
+        self.args = new_args
+
+    def rename_operands(self, name, version):
+        new_args = []
+        for arg in self.args:
+            if arg.value == name:
+                new_args.append(IdOperand(name + "_" + str(version)))
+            else:
+                new_args.append(arg)
+        self.args= new_args
 
 
 class FuncArgOperand(Operand):

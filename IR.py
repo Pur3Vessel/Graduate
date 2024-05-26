@@ -74,6 +74,17 @@ class FuncDefInstruction(IR):
     def remove_versions(self):
         pass
 
+    def is_use_op(self, op):
+        for arg in self.arguments:
+            if arg.dimentions is None:
+                if arg.name == op:
+                    return True
+            else:
+                for d in arg.dimentions:
+                    if d == op:
+                        return True
+        return False
+
 
 class ArrayInitInstruction(IR):
     def __init__(self, type, name, dimentions, assign):
@@ -132,6 +143,8 @@ class AtomicAssign(IR):
             if self.argument.value == name:
                 new_op = IdOperand(name + "_" + str(version))
                 self.argument = new_op
+        if isinstance(self.argument, (FuncCallOperand, ArrayUseOperand)):
+            self.argument.rename_operands(name, version)
 
     def get_operands(self):
         if isinstance(self.argument, FuncCallOperand):
@@ -141,6 +154,10 @@ class AtomicAssign(IR):
         return [self.argument]
 
     def is_use_op(self, value):
+        if self.dimentions is not None:
+            for d in self.dimentions:
+                if d.value == value:
+                    return True
         if isinstance(self.argument, IntConstantOperand) or isinstance(self.argument,
                                                                        BoolConstantOperand) or isinstance(self.argument,
                                                                                                           FloatConstantOperand):
@@ -188,6 +205,21 @@ class AtomicAssign(IR):
         if isinstance(self.argument, IdOperand):
             self.argument = IdOperand(self.argument.value.split("_")[0])
 
+    def replace_operand(self, name, new_name):
+        if isinstance(self.argument, (FuncCallOperand, ArrayUseOperand)):
+            self.argument.replace_operand(name, new_name)
+        else:
+            if self.argument.value == name:
+                self.argument = IdOperand(name)
+            if self.dimentions is not None:
+                new_dims = []
+                for d in self.dimentions:
+                    if d == name:
+                        new_dims.append(IdOperand(new_name))
+                    else:
+                        new_dims.append(d)
+                self.dimentions = new_dims
+
 
 class UnaryAssign(IR):
     def __init__(self, type, value, op, argument, dimentions):
@@ -215,6 +247,10 @@ class UnaryAssign(IR):
         return [self.arg]
 
     def is_use_op(self, value):
+        if self.dimentions is not None:
+            for d in self.dimentions:
+                if d.value == value:
+                    return True
         if isinstance(self.arg, (IntConstantOperand, BoolConstantOperand, FloatConstantOperand)):
             return False
         return self.arg.value == value
@@ -258,6 +294,18 @@ class UnaryAssign(IR):
         if isinstance(self.arg, IdOperand):
             self.arg = IdOperand(self.arg.value.split("_")[0])
 
+    def replace_operand(self, name, new_name):
+        if self.dimentions is not None:
+            new_dims = []
+            for d in self.dimentions:
+                if d == name:
+                    new_dims.append(IdOperand(new_name))
+                else:
+                    new_dims.append(d)
+            self.dimentions = new_dims
+        if self.arg.value == name:
+            self.arg = IdOperand(new_name)
+
 
 class BinaryAssign(IR):
     def __init__(self, type, value, op, left, right, dimentions):
@@ -291,6 +339,10 @@ class BinaryAssign(IR):
         return [self.left, self.right]
 
     def is_use_op(self, value):
+        if self.dimentions is not None:
+            for d in self.dimentions:
+                if d.value == value:
+                    return True
         return self.left.value == value or self.right.value == value
 
     def lat_eval(self, lattice):
@@ -415,6 +467,20 @@ class BinaryAssign(IR):
     def is_cmp(self):
         return self.op == ">" or self.op == "<" or self.op == "==" or self.op == "!=" or self.op == ">=" or self.op == "<="
 
+    def replace_operand(self, name, new_name):
+        if self.left.value == name:
+            self.left = IdOperand(new_name)
+        if self.right.value == name:
+            self.right = IdOperand(new_name)
+        if self.dimentions is not None:
+            new_dims = []
+            for d in self.dimentions:
+                if d == name:
+                    new_dims.append(IdOperand(new_name))
+                else:
+                    new_dims.append(d)
+            self.dimentions = new_dims
+
 
 class PhiAssign(IR):
     def __init__(self, value, arguments):
@@ -453,6 +519,31 @@ class PhiAssign(IR):
     def is_def(self, op):
         return op.value == self.value
 
+    def operand_number(self, op):
+        for i, arg in enumerate(self.arguments):
+            if arg.value == op:
+                return i
+        return -1
+
+    def is_use_op(self, op):
+        for arg in self.arguments:
+            if arg.value == op:
+                return True
+        return False
+
+    def is_use_op_for_label(self, op, i):
+        return self.arguments[i].value == op
+
+    def replace_operand(self, name, new_name):
+        #new_args = []
+        #for arg in self.arguments:
+        #    if arg.value == name:
+        #        new_args.append(IdOperand(new_name))
+        #    else:
+        #        new_args.append(arg)
+        #self.arguments = new_args
+        pass
+
 
 class ReturnInstruction(IR):
     def __init__(self, value):
@@ -463,7 +554,7 @@ class ReturnInstruction(IR):
 
     def rename_operands(self, name, version):
         if isinstance(self.value, IdOperand) and self.value.value == name:
-            self.value = IdOperand(self.value.value + "_" + version)
+            self.value = IdOperand(self.value.value + "_" + str(version))
 
     def is_use_op(self, value):
         return self.value.value == value
@@ -492,6 +583,11 @@ class ReturnInstruction(IR):
     def remove_versions(self):
         if isinstance(self.value, IdOperand):
             self.value = IdOperand(self.value.value.split("_")[0])
+
+    def replace_operand(self, name, new_name):
+        self.value = IdOperand(new_name)
+
+
 
 
 class IsTrueInstruction(IR):
@@ -532,3 +628,6 @@ class IsTrueInstruction(IR):
     def remove_versions(self):
         if isinstance(self.value, IdOperand):
             self.value = IdOperand(self.value.value.split("_")[0])
+
+    def replace_operand(self, name, new_name):
+        self.value = IdOperand(new_name)

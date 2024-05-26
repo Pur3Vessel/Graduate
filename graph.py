@@ -118,6 +118,8 @@ class Graph:
         self.cycles = []
         self.point2assign = {}
         self.assign2point = {}
+        self.instructions_to_labels = {}
+        self.labels_to_instructions = {}
 
     def add_vertex(self):
         vertex = Vertex.init_empty_vertex()
@@ -194,6 +196,27 @@ class Graph:
                     stack.append(next_v)
         self.make_p2a()
         self.remove_non_reachable()
+
+    def labels_dfs(self):
+        self.instructions_to_labels = {}
+        first = self.vertexes[0]
+        stack = [first]
+        point = 0
+        for v in self.vertexes:
+            v.checked = False
+        while len(stack) != 0:
+            current = stack.pop()
+            current.checked = True
+            for i, instruction in enumerate(current.block):
+                self.instructions_to_labels[instruction] = point
+                if not isinstance(instruction, PhiAssign):
+                    point += 1
+                if isinstance(instruction, PhiAssign) and (i == len(current.block) - 1 or not isinstance(current.block[i+1], PhiAssign)):
+                    point += 1
+            for next_v in current.output_vertexes:
+                if not next_v.checked:
+                    stack.append(next_v)
+        self.labels_to_instructions = {value: key for key, value in self.instructions_to_labels.items()}
 
     def dfs_without(self):
         n = 0
