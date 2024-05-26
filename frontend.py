@@ -131,13 +131,12 @@ OTHER_CALL_PARAMS |= lambda: []
 ACTION |= LABEL_ACTION
 LABEL_ACTION |= ID, ":", LabelAction.create
 
-VAR_DECL |= TYPE, ARRAY_DECL, ArrayDeclAction.create
-ARRAY_DECL |= ID, '[', DIMENTIONS_DECL, ']', ARRAY_INIT
+VAR_DECL |= TYPE, ID, '[', DIMENTIONS_DECL, ']', ARRAY_INIT, ArrayDeclAction.create
 DIMENTIONS_DECL |= NUM_CONST, OTHER_DIMENTIONS_DECL, lambda x, y: [x] + y
-OTHER_DIMENTIONS_DECL = ',', NUM_CONST, OTHER_DIMENTIONS_DECL, lambda x, y: [x] + y
+OTHER_DIMENTIONS_DECL |= ',', NUM_CONST, OTHER_DIMENTIONS_DECL, lambda x, y: [x] + y
 OTHER_DIMENTIONS_DECL |= lambda: []
-ARRAY_INIT |= None
-ARRAY_INIT = "=", ARRAY
+ARRAY_INIT |= lambda: []
+ARRAY_INIT |= "=", ARRAY
 ARRAY |= '{', ARRAY_ELEM, ARRAY_ELEMS, '}', lambda x, y: prepend_to_list(x, y)
 ARRAY_ELEM |= NUM_CONST
 ARRAY_ELEM |= ARRAY
@@ -211,6 +210,7 @@ def parse(file):
     except pe.Error as e:
         print(f"Ошибка {e.pos}: {e.message}")
     except Exception as e:
+        print("Ошибка")
         print(type(e))
         print(e)
         traceback.print_exc()

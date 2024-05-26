@@ -1,4 +1,4 @@
-int tile_check(int u[n][m]) {
+int tile(int u[n][m]) {
     for (k = 0 to n) {
         for (i = 0 to n) {
             for (j = 0 to m) {
@@ -12,6 +12,6 @@ int tile_check(int u[n][m]) {
 
 int main() {
    int u[5, 5]= {{1, 2, 3, 4, 5}, {1, 2, 3, 4, 5}, {1, 2, 3, 4, 5}, {1, 2, 3, 4, 5}, {1, 2, 3, 4, 5}};
-   int a = tile_check(u);
+   int a = tile(u);
    return a;
 }

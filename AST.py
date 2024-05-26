@@ -8,6 +8,8 @@ NestedList = Union[float, List['NestedList']]
 
 
 def check_dimentions(nested_list, dimentions):
+    if type(nested_list) is float and len(dimentions) == 0:
+        return True
     if len(nested_list) != int(dimentions[0]):
         return False
     for item in nested_list:
@@ -23,7 +25,7 @@ tmp_version = 0
 def is_int(value):
     if isinstance(value, float):
         return value.is_integer()
-    print("Что-то не так с float: " + value)
+    print("Что-то не так с float: " + str(value))
     return False
 
 
@@ -53,11 +55,14 @@ def simplify_expression(expression):
             new_args = []
             new_assigns = []
             for arg in expression.args:
-                new_arg_assings, new_arg_tmp = simplify_expression(arg)
-                new_assigns += new_arg_assings
-                new_argument = IdUse(new_arg_tmp, pe.Fragment(pe.Position(0), pe.Position(0)))
-                new_argument.type = arg.type
-                new_args.append(new_argument)
+                if not (isinstance(arg, IdUse) and arg.is_arr):
+                    new_arg_assings, new_arg_tmp = simplify_expression(arg)
+                    new_assigns += new_arg_assings
+                    new_argument = IdUse(new_arg_tmp, pe.Fragment(pe.Position(0), pe.Position(0)), False)
+                    new_argument.type = arg.type
+                    new_args.append(new_argument)
+                else:
+                    new_args.append(arg)
             new_tmp = "tmp$" + str(tmp_version)
             tmp_version += 1
             call = FuncCall(expression.name, new_args, pe.Fragment(pe.Position(0), pe.Position(0)))
@@ -72,8 +77,8 @@ def simplify_expression(expression):
             for idx in expression.indexing:
                 new_idx_assigns, new_idx_tmp = simplify_expression(idx)
                 new_assigns += new_idx_assigns
-                new_idx = IdUse(new_idx_tmp, pe.Fragment(pe.Position(0), pe.Position(0)))
-                new_idx.type = IntType()
+                new_idx = IdUse(new_idx_tmp, pe.Fragment(pe.Position(0), pe.Position(0)), False)
+                new_idx.type = "int"
                 new_indexes.append(new_idx)
             new_tmp = "tmp$" + str(tmp_version)
             tmp_version += 1
@@ -94,7 +99,7 @@ def simplify_expression(expression):
             new_assigns, new_tmp_exp = simplify_expression(expression.exp)
             new_tmp = "tmp$" + str(tmp_version)
             tmp_version += 1
-            id_use = IdUse(new_tmp_exp, pe.Fragment(pe.Position(0), pe.Position(0)))
+            id_use = IdUse(new_tmp_exp, pe.Fragment(pe.Position(0), pe.Position(0)), False)
             id_use.type = expression.exp.type
             unary_op = UnaryOp(expression.op, id_use, pe.Fragment(pe.Position(0), pe.Position(0)))
             unary_op.type = expression.type
@@ -108,9 +113,9 @@ def simplify_expression(expression):
             new_assigns_left, new_tmp_left = simplify_expression(expression.left)
             new_assings_right, new_tmp_right = simplify_expression(expression.right)
             new_assigns = new_assigns_left + new_assings_right
-            id_use_left = IdUse(new_tmp_left, pe.Fragment(pe.Position(0), pe.Position(0)))
+            id_use_left = IdUse(new_tmp_left, pe.Fragment(pe.Position(0), pe.Position(0)), False)
             id_use_left.type = expression.left.type
-            id_use_right = IdUse(new_tmp_right, pe.Fragment(pe.Position(0), pe.Position(0)))
+            id_use_right = IdUse(new_tmp_right, pe.Fragment(pe.Position(0), pe.Position(0)), False)
             id_use_right.type = expression.right.type
             bin_op = BinOp(id_use_left, expression.op, id_use_right, pe.Fragment(pe.Position(0), pe.Position(0)))
             bin_op.type = expression.type
@@ -121,7 +126,7 @@ def simplify_expression(expression):
             new_assigns.append(new_exp)
             return new_assigns, new_tmp
         else:
-            print("Что-то не так")
+            print("Что-то не такF")
 
 
 class SemanticError(pe.Error):
@@ -140,15 +145,9 @@ class Type(ABC):
 
 
 @dataclass
-class AnyType(Type):
-    def __eq__(self, other):
-        return True
-
-
-@dataclass
 class NumericType(Type):
     def __eq__(self, other):
-        return type(self) == type(other) or type(other) == type(AnyType)
+        return type(self) == type(other)
 
     def __str__(self):
         return "numeric"
@@ -157,7 +156,7 @@ class NumericType(Type):
 @dataclass
 class BoolType(Type):
     def __eq__(self, other):
-        return type(self) == type(other) or type(other) == type(AnyType)
+        return isinstance(other, BoolType)
 
     def __str__(self):
         return "bool"
@@ -166,7 +165,7 @@ class BoolType(Type):
 @dataclass
 class IntType(NumericType):
     def __eq__(self, other):
-        return type(self) == type(other) or type(other) == type(AnyType)
+        return isinstance(other, IntType)
 
     def __str__(self):
         return "int"
@@ -175,7 +174,7 @@ class IntType(NumericType):
 @dataclass
 class FloatType(NumericType):
     def __eq__(self, other):
-        return type(self) == type(other) or type(other) == type(AnyType)
+        return isinstance(other, FloatType)
 
     def __str__(self):
         return "float"
@@ -217,20 +216,20 @@ class BinOp(Expression):
         self.left.check(defined_funcs, scalar_args, array_args, decl_vars, decl_arrays)
         self.right.check(defined_funcs, scalar_args, array_args, decl_vars, decl_arrays)
         if self.op in ["and", "or"]:
-            if self.left.type != BoolType or self.right.type != BoolType:
+            if not isinstance(self.left.type, BoolType) or not isinstance(self.right.type, BoolType):
                 raise SemanticError(self.pos, "Несоотвествие типа и операции")
             self.type = BoolType()
 
         if self.op in ["+", "-", "*", "/", "mod", "div"]:
-            if self.left.type != NumericType or self.right.type != NumericType:
+            if not isinstance(self.left.type, NumericType) or not isinstance(self.right.type, NumericType):
                 raise SemanticError(self.pos, "Несоотвествие типа и операции")
-            if self.left.type == IntType and self.right.type == IntType:
+            if isinstance(self.left.type, IntType) and isinstance(self.right.type, IntType):
                 self.type = IntType()
             else:
                 self.type = FloatType()
 
         if self.op in ["==", "!=", ">", ">=", "<", "<="]:
-            if self.left.type != NumericType or self.right.type != NumericType:
+            if not isinstance(self.left.type, NumericType) or not isinstance(self.right.type, NumericType):
                 raise SemanticError(self.pos, "Несоотвествие типа и операции")
             self.type = BoolType()
 
@@ -286,11 +285,12 @@ class BoolConst(Expression):
 class IdUse(Expression):
     name: str
     pos: pe.Fragment
+    is_arr: bool
 
     @pe.ExAction
     def create(attrs, coords, res_coord):
         name = attrs[0]
-        return IdUse(name, res_coord)
+        return IdUse(name, res_coord, False)
 
     def check(self, defined_funcs, scalar_args, array_args, decl_vars, decl_arrays):
         if self.name not in scalar_args and self.name not in decl_vars:
@@ -317,7 +317,9 @@ class ArrayUse(Expression):
             raise SemanticError(self.pos, "Несовпадение размерностей")
         for exp in self.indexing:
             exp.check(defined_funcs, scalar_args, array_args, decl_vars, decl_arrays)
-            if exp.type != IntType:
+            if not isinstance(exp.type, IntType):
+                print(exp.type)
+                print(self.indexing[1].right.type)
                 raise SemanticError(self.pos, "Индекс массива не целое число")
         self.type = array_args[self.name][0] if self.name in array_args else decl_arrays[self.name][0]
 
@@ -350,6 +352,7 @@ class FuncCall(Expression):
                     raise SemanticError(self.pos, "Тип выражения не совпадает с типом аргумента функции")
                 if n_dimentions != len(f.args[i].dimentions):
                     raise SemanticError(self, "Несовпадение количества размерностей")
+                arg.is_arr = True
             else:
                 arg.check(defined_funcs, defined_funcs, scalar_args, array_args, decl_vars, decl_arrays)
                 if arg.type != f.args[i].type:
@@ -423,6 +426,8 @@ class ArrayDeclAction(Action):
     @pe.ExAction
     def create(attrs, coords, res_coord):
         type, name, dimentions, init = attrs
+        if len(init) == 0:
+            init = None
         return ArrayDeclAction(type, name, dimentions, init, res_coord)
 
     def check(self, defined_funcs, scalar_args, array_args, decl_vars, decl_arrays, labels, is_loop, func_type):
@@ -526,7 +531,7 @@ class ArrayAssignAction(Action):
             raise SemanticError(self.pos, "Несовпадение размерностей")
         for dim in self.indexing:
             dim.check(defined_funcs, scalar_args, array_args, decl_vars, decl_arrays)
-            if dim.type != IntType:
+            if not isinstance(dim.type, IntType):
                 raise SemanticError(self.pos, "Индексация не целым числом")
 
     def generate(self):
@@ -537,7 +542,7 @@ class ArrayAssignAction(Action):
             new_idx_assigns, new_idx_tmp = simplify_expression(idx)
             place_assigns(new_idx_assigns)
             new_indexes.append(IdOperand(new_idx_tmp))
-        new_IR = AtomicAssign(self.assign.type, self.name, IdOperand(new_tmp), new_indexes)
+        new_IR = AtomicAssign(str(self.assign.type), self.name, IdOperand(new_tmp), new_indexes)
         builder.add_expression(new_IR)
 
 
@@ -802,7 +807,7 @@ class ForAction(Action):
     def create(attrs, coords, res_coord):
         var_name, start, end, step, block = attrs
         if isinstance(step, EmptyExpression):
-            step = NumConst(1)
+            step = NumConst(1.0)
         return ForAction(var_name, start, end, step, block, res_coord)
 
     def check_return(self):
@@ -856,9 +861,8 @@ class ForAction(Action):
         end_IR = IsTrueInstruction(IdOperand(new_tmp))
         builder.add_expression(end_IR)
 
-        builder.create_block()
-        builder.add_connector(current, after_block)
         header = builder.create_block()
+        builder.add_connector(current, after_block)
 
         latch = builder.create_block_without()
 
@@ -900,7 +904,7 @@ class ReturnAction(Action):
 
     def check(self, defined_funcs, scalar_args, array_args, decl_vars, decl_arrays, labels, is_loop, func_type):
         self.exp.check(defined_funcs, scalar_args, array_args, decl_vars, decl_arrays)
-        if self.exp.type != func_type:
+        if not isinstance(self.exp.type, type(func_type)):
             raise SemanticError(self.pos, "тип return не совпадает с возвращаемым типом")
 
     def generate(self):
@@ -968,8 +972,8 @@ class FuncDef:
 
     def check(self, defined_funcs):
         if self.name == "main":
-            if not isinstance(self.return_type, IntType):
-                raise SemanticError(self.pos, "У функции main возвращаемый тип не int")
+            # if not isinstance(self.return_type, IntType):
+            #    raise SemanticError(self.pos, "У функции main возвращаемый тип не int")
             if len(self.args) > 0:
                 raise SemanticError(self.pos, "У функции main не должно быть аргументов")
         if len(self.args) != len(set(map(lambda x: x.name, self.args))):
@@ -978,10 +982,11 @@ class FuncDef:
         scalar_args = dict([(arg.name, arg.type) for arg in self.args if len(arg.dimentions) == 0])
         array_args = dict(
             [(arg.name, (arg.type, len(arg.dimentions))) for arg in self.args if len(arg.dimentions) != 0])
-        for a in array_args:
+        for a in self.args:
             for i in a.dimentions:
                 if i in scalar_args or i in array_args:
                     raise SemanticError(self.pos, f"у функции {self.name} найдены одноименные параметры")
+                scalar_args[i] = IntType()
         decl_vars = {}
         decl_arrays = {}
         labels = {}
@@ -996,7 +1001,7 @@ class FuncDef:
 
     def generate(self):
         builder.create_block_without()
-        arguments = [FuncArgOperand(str(arg.type), arg.name) for arg in self.args]
+        arguments = [FuncArgOperand(str(arg.type), arg.name, arg.dimentions) for arg in self.args]
         def_IR = FuncDefInstruction(str(self.return_type), self.name, arguments)
         builder.add_expression(def_IR)
         builder.create_block()

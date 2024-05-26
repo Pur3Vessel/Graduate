@@ -24,7 +24,7 @@ class FloatConstantOperand(Operand):
 
 class IntConstantOperand(Operand):
     def __init__(self, value):
-        self.value = value
+        self.value = int(value)
 
     def __str__(self):
         return str(self.value)
@@ -44,7 +44,7 @@ class ArrayUseOperand(Operand):
         self.indexing = indexing
 
     def __str__(self):
-        s = self.name + " ["
+        s = self.name + "["
         for i, idx in enumerate(self.indexing):
             s += str(idx)
             if i != len(self.indexing) - 1:
@@ -131,9 +131,13 @@ class FuncCallOperand(Operand):
 
 
 class FuncArgOperand(Operand):
-    def __init__(self, type, name):
+    def __init__(self, type, name, dimentions):
         self.type = type
         self.name = name
+        self.dimentions = dimentions
 
     def __str__(self):
-        return self.type + " " + self.name
+        d = ""
+        if self.dimentions is not None:
+            d = "[" + ", ".join(self.dimentions) + "]"
+        return self.type + " " + self.name + d

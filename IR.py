@@ -3,8 +3,16 @@ from operands import *
 
 def nested_list_to_str(nested_list):
     if isinstance(nested_list, list):
-        return "{" + ",".join(nested_list_to_str(item) for item in nested_list)
+        return "{" + ",".join(nested_list_to_str(item) for item in nested_list) + "}"
     return str(nested_list)
+
+
+def convert_to_int(nested_list):
+    if isinstance(nested_list, list):
+        return [convert_to_int(item) for item in nested_list]
+    elif isinstance(nested_list, float):
+        return int(nested_list)
+    return nested_list
 
 
 def is_assign(stmt):
@@ -73,18 +81,22 @@ class ArrayInitInstruction(IR):
         self.name = name
         self.dimentions = dimentions
         self.assign = assign
+        self.dimentions = list(map(lambda x: int(x), self.dimentions))
+        if self.type == "int" and self.assign is not None:
+            self.assign = convert_to_int(self.assign)
 
     def __str__(self):
         s = self.type + " " + self.name + "["
         for i, dim in enumerate(self.dimentions):
             s += str(dim)
-            if i != len(dim) - 1:
+            if i != len(self.dimentions) - 1:
                 s += ", "
         s += "]"
         if self.assign is not None:
             s += " = " + nested_list_to_str(self.assign)
+        return s
 
-    def rename_operands(self):
+    def rename_operands(self, name, version):
         pass
 
     def place_constants(self, lattice):
@@ -92,6 +104,12 @@ class ArrayInitInstruction(IR):
 
     def remove_versions(self):
         pass
+
+    def get_operands(self):
+        return []
+
+    def is_use_op(self, op):
+        return False
 
 
 class AtomicAssign(IR):
@@ -118,10 +136,14 @@ class AtomicAssign(IR):
     def get_operands(self):
         if isinstance(self.argument, FuncCallOperand):
             return self.argument.get_operands()
+        if isinstance(self.argument, ArrayUseOperand):
+            return self.argument.get_operands()
         return [self.argument]
 
     def is_use_op(self, value):
-        if isinstance(self.argument, IntConstantOperand) or isinstance(self.argument, BoolConstantOperand) or isinstance(self.argument, FloatConstantOperand):
+        if isinstance(self.argument, IntConstantOperand) or isinstance(self.argument,
+                                                                       BoolConstantOperand) or isinstance(self.argument,
+                                                                                                          FloatConstantOperand):
             return False
         if isinstance(self.argument, FuncCallOperand) or isinstance(self.argument, ArrayUseOperand):
             return self.argument.is_use_op(value)
@@ -130,7 +152,9 @@ class AtomicAssign(IR):
     def lat_eval(self, lattice):
         if isinstance(self.argument, FuncCallOperand) or isinstance(self.argument, ArrayUseOperand):
             return ConstantLatticeElement.LOW
-        if isinstance(self.argument, IntConstantOperand) or isinstance(self.argument, BoolConstantOperand) or isinstance(self.argument, FloatConstantOperand):
+        if isinstance(self.argument, IntConstantOperand) or isinstance(self.argument,
+                                                                       BoolConstantOperand) or isinstance(self.argument,
+                                                                                                          FloatConstantOperand):
             return self.argument.value
         if self.argument.value not in lattice.sl:
             return ConstantLatticeElement.LOW
@@ -270,12 +294,14 @@ class BinaryAssign(IR):
         return self.left.value == value or self.right.value == value
 
     def lat_eval(self, lattice):
-        if isinstance(self.left, IntConstantOperand) or isinstance(self.left, BoolConstantOperand) or isinstance(self.left, FloatConstantOperand):
+        if isinstance(self.left, IntConstantOperand) or isinstance(self.left, BoolConstantOperand) or isinstance(
+                self.left, FloatConstantOperand):
             op1 = self.left.value
         else:
             op1 = lattice.sl[self.left.value]
 
-        if isinstance(self.right, IntConstantOperand) or isinstance(self.right, BoolConstantOperand) or isinstance(self.left, FloatConstantOperand):
+        if isinstance(self.right, IntConstantOperand) or isinstance(self.right, BoolConstantOperand) or isinstance(
+                self.right, FloatConstantOperand):
             op2 = self.right.value
         else:
             op2 = lattice.sl[self.right.value]
@@ -386,11 +412,15 @@ class BinaryAssign(IR):
                     return AtomicAssign(self.type, self.value, self.left, self.dimentions)
         return self
 
+    def is_cmp(self):
+        return self.op == ">" or self.op == "<" or self.op == "==" or self.op == "!=" or self.op == ">=" or self.op == "<="
+
 
 class PhiAssign(IR):
     def __init__(self, value, arguments):
         self.value = value
         self.arguments = arguments
+        self.dimentions = None
 
     def __str__(self):
         s = self.value + " <- PHI("
@@ -405,8 +435,8 @@ class PhiAssign(IR):
         return self.arguments
 
     def place_constants(self, lattice):
-        #changed = False
-        #for i, arg in enumerate(self.arguments):
+        # changed = False
+        # for i, arg in enumerate(self.arguments):
         #    if isinstance(arg, IdOperand):
         #        if arg in lattice.sl:
         #            val = lattice.sl[arg.value]
@@ -417,7 +447,7 @@ class PhiAssign(IR):
         #                    assert type(val) is bool
         #                    self.arguments[i] = BoolConstantOperand(val)
         #                changed = True
-        #return changed
+        # return changed
         return False
 
     def is_def(self, op):

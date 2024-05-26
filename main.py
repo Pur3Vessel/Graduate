@@ -2,8 +2,12 @@ import builder
 from frontend import *
 
 
-def opt_pass(tree):
+def opt_pass(tree, j):
     changed = False
+    if j == 1:
+        is_preheader = False
+    else:
+        is_preheader = True
     for func in tree.funcDefs:
         # Обход в глубину
         builder.contexts[func.name].graph.dfs()
@@ -14,8 +18,7 @@ def opt_pass(tree):
         # Выявление достигающих определений
         builder.contexts[func.name].graph.solve_rd()
         # Loop invariant_code_motion
-        changed = builder.contexts[func.name].loop_invariant_code_motion() or changed
-        print(func.name, changed)
+        changed = builder.contexts[func.name].loop_invariant_code_motion(is_preheader) or changed
         # Построение дерева доминаторов
         builder.contexts[func.name].graph.dfs()
         builder.contexts[func.name].graph.build_dominators_tree()
@@ -27,10 +30,9 @@ def opt_pass(tree):
         builder.contexts[func.name].change_numeration()
         # Constant_propagation
         changed = builder.contexts[func.name].constant_propagation() or changed
-        print(func.name, changed)
         # Dead code elimination
         changed = builder.contexts[func.name].dead_code_elimination() or changed
-        print(func.name, changed)
+
 
     if changed:
         for func in tree.funcDefs:
@@ -55,7 +57,6 @@ if __name__ == "__main__":
         j = 0
         while changed:
             j += 1
-            changed = opt_pass(tree)
-            # break
+            changed = opt_pass(tree, j)
         print(f"Тест {i} завершился за {j - 1} пассов")
         builder.print_graph(out_file)

@@ -71,7 +71,7 @@ class Context:
                 phi_expr = PhiAssign(name, phi_args)
                 place.insert_head(phi_expr)
 
-    def loop_invariant_code_motion(self):
+    def loop_invariant_code_motion(self, is_preheader):
         # for v in self.graph.vertexes:
         #    for inst in v.block:
         #        if is_assign(inst):
@@ -83,14 +83,14 @@ class Context:
         cycles = sorted(self.graph.cycles, key=lambda x: len(x))
         changed = False
         for cycle in cycles:
-            changed = self.lycm_cycle(cycle) or changed
+            changed = self.lycm_cycle(cycle, is_preheader) or changed
         return changed
 
-    def lycm_cycle(self, cycle):
+    def lycm_cycle(self, cycle, is_preheader):
         invar_order = self.mark_invar(cycle)
         # for inst in invar_order:
         #    print(inst)
-        changed = self.move_invars(invar_order, cycle)
+        changed = self.move_invars(invar_order, cycle, is_preheader)
         return changed
 
     def mark_invar(self, cycle):
@@ -111,7 +111,8 @@ class Context:
         return invar_order
 
     def is_const_operand(self, operand):
-        return isinstance(operand, IntConstantOperand) or isinstance(operand, BoolConstantOperand) or isinstance(operand, FloatConstantOperand)
+        return isinstance(operand, IntConstantOperand) or isinstance(operand, BoolConstantOperand) or isinstance(
+            operand, FloatConstantOperand)
 
     def check_inv_operand(self, operand, block, cycle, instruction, inst_invar):
         if self.is_const_operand(operand):
@@ -146,14 +147,14 @@ class Context:
         for instruction in block.block:
             if is_assign(instruction) and not inst_invar[instruction]:
                 is_inv = True
+                if isinstance(instruction, BinaryAssign) and instruction.is_cmp():
+                    is_inv = False
                 operands = instruction.get_operands()
                 for operand in operands:
+                    if isinstance(operand, ArrayUseOperand):
+                        is_inv = False
                     # print(f"{instruction}: {operand}: {self.check_inv_operand(operand, block, cycle, instruction, inst_invar)}")
                     is_inv = is_inv and self.check_inv_operand(operand, block, cycle, instruction, inst_invar)
-                if isinstance(instruction, AtomicAssign) and isinstance(instruction.argument,
-                                                                        FuncCallOperand) and not self.is_pure_function(
-                    instruction.argument.name):
-                    is_inv = False
                 inst_invar[instruction] = is_inv
                 if is_inv:
                     changed = True
@@ -194,10 +195,14 @@ class Context:
         self.graph.clean_dominators()
         return is_pred
 
-    def move_invars(self, invar_order, cycle):
+    def move_invars(self, invar_order, cycle, is_preheader):
         changed = False
         if len(invar_order) != 0:
-            preheader = self.graph.create_preheader(cycle)
+            if not is_preheader:
+                preheader = self.graph.create_preheader(cycle)
+            else:
+                header = cycle[1]
+                preheader = header.input_vertexes[-1]
             self.graph.dfs_without()
             for instruction in invar_order:
                 if self.dom_predicate(instruction, cycle, preheader):
@@ -234,8 +239,14 @@ class Context:
         exec_flag = {}
         for v in self.graph.vertexes:
             for instr in v.block:
+                if isinstance(instr, FuncDefInstruction):
+                    for arg in instr.arguments:
+                        lattice.sl[arg.name] = ConstantLatticeElement.LOW
+                if isinstance(instr, ArrayInitInstruction):
+                    lattice.sl[instr.name] = ConstantLatticeElement.LOW
                 if is_assign(instr):
-                    lattice.init_value(instr.value)
+                    if instr.dimentions is None:
+                        lattice.init_value(instr.value)
             for out_v in v.output_vertexes:
                 exec_flag[(v, out_v)] = False
         for out_v in self.graph.vertexes[0].output_vertexes:
@@ -283,7 +294,7 @@ class Context:
                 SSAWL.add((v, succ))
 
     def visit_inst(self, v, instr, lattice, flowWL, SSAWL):
-        if isinstance(instr, (FuncDefInstruction, ReturnInstruction)):
+        if isinstance(instr, (FuncDefInstruction, ReturnInstruction, ArrayInitInstruction)) or (is_assign(instr) and instr.dimentions is not None):
             if len(v.output_vertexes) != 0:
                 flowWL.add((v, v.output_vertexes[0]))
             return
@@ -298,7 +309,6 @@ class Context:
             for out_v in v.output_vertexes:
                 flowWL.add((v, out_v))
 
-
     def dead_code_elimination(self):
         changed = self.remove_unreachable_ways()
         # print(1, changed)
@@ -310,10 +320,10 @@ class Context:
         return changed
 
     def is_critical_instruction(self, instruction):
-        return isinstance(instruction, (IsTrueInstruction, ReturnInstruction)) or not self.is_pure_function(instruction.name) or (
-                       isinstance(instruction, AtomicAssign) and isinstance(instruction.argument,
-                                                                            FuncCallOperand) and not self.is_pure_function(
-                   instruction.argument.name))
+        return isinstance(instruction,
+                          (IsTrueInstruction, ReturnInstruction, ArrayInitInstruction, FuncDefInstruction)) or (
+                    isinstance(instruction,
+                               (AtomicAssign, BinaryAssign, UnaryAssign)) and instruction.dimentions is not None)
 
     def get_assign_for_op(self, op):
         for v in self.graph.vertexes:
@@ -380,12 +390,6 @@ class Context:
             self.graph.remove_block(block)
         self.graph.remove_fluous_edges()
         return changed
-
-    def is_pure_function(self, func_name):
-        if func_name == "print" or func_name == "input":
-            return False
-        # print(func_name, self.contexts[func_name].graph.is_pure_function())
-        return self.contexts[func_name].graph.is_pure_function()
 
     def remove_ssa(self):
         self.remove_phi()

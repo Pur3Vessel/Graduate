@@ -1,5 +1,5 @@
 
-int main() {
+float main() {
     float b = 5.3;
     int c = 2;
     for (i = 0 to 10) {

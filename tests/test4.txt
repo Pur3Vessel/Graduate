@@ -1,4 +1,4 @@
-int v(a[u1], b[u2], c[u3], d[u4], e[u5]) {
+int v(int a[u1], int b[u2], int c[u3], int d[u4], int e[u5]) {
     for (i = 0 to u1) {
         a[i] = c[i] * b[i];
         b[i + 1] = d[i] - e[i];
@@ -12,7 +12,7 @@ int main() {
     int a[5] = {1, 2, 3, 4 ,5};
     int b[6] = {1, 2, 3, 4, 5, 6};
     int c[6]  = {1, 2, 3, 4, 5, 6};
-    int d[5] =  = {1, 2, 3, 4, 5};
+    int d[5] = {1, 2, 3, 4, 5};
     int e[5] =  {1, 2, 3, 4, 5};
     return v(a, b, c, d, e);
 }
