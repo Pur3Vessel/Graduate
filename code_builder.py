@@ -53,8 +53,10 @@ class ContextBuilder:
             int_ifg.build(self.context, True, spill_vars, [])
             spill_var = int_ifg.try_color()
 
-        added_vars = spill_vars
-        spill_vars = []
+        #added_vars = spill_vars
+        #spill_vars = []
+        added_vars = []
+
         float_ifg.build(self.context, False, [], added_vars)
         spill_var = float_ifg.try_color()
         while spill_var is not None:
@@ -96,7 +98,12 @@ class ContextBuilder:
     def generate_block(self, v):
         self.code.append(Label(v.label))
         for instruction in v.block:
-            self.code += instruction.get_low_ir(self.scalar_variables)
+            if isinstance(instruction, IsTrueInstruction):
+                self.code += instruction.get_low_ir_branch(self.scalar_variables, v.output_vertexes)
+            elif isinstance(instruction, ReturnInstruction):
+                self.code += instruction.get_low_ir_return(self.scalar_variables, self.is_entry)
+            else:
+                self.code += instruction.get_low_ir(self.scalar_variables)
         if len(v.output_vertexes) == 1:
             self.code.append(Jump(v.output_vertexes[0].label))
 

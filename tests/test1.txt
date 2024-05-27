@@ -6,6 +6,7 @@ int tile(int u[n][m]) {
             }
         }
     }
+    u[0, 0] = n + m;
     return u[n - 1, m - 1];
 }
 

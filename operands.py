@@ -120,6 +120,12 @@ class ArrayUseOperand(Operand):
                 new_args.append(arg)
         self.indexing = new_args
 
+    def get_indexing_instructions(self, scalar_variables):
+        return []
+
+    def get_source(self):
+        return "Заглушка для source"
+
 
 class FuncCallOperand(Operand):
     def __init__(self, func_name, arguments):
@@ -182,7 +188,10 @@ class FuncCallOperand(Operand):
                 new_args.append(IdOperand(name + "_" + str(version)))
             else:
                 new_args.append(arg)
-        self.args= new_args
+        self.args = new_args
+
+    def get_call_instructions(self, scalar_variables):
+        return []
 
 
 class FuncArgOperand(Operand):

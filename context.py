@@ -148,6 +148,8 @@ class Context:
         for instruction in block.block:
             if is_assign(instruction) and not inst_invar[instruction]:
                 is_inv = True
+                if isinstance(instruction, (AtomicAssign, UnaryAssign, BinaryAssign)) and instruction.dimentions is not None:
+                    is_inv = False
                 if isinstance(instruction, BinaryAssign) and instruction.is_cmp():
                     is_inv = False
                 operands = instruction.get_operands()
@@ -608,8 +610,14 @@ class Context:
                     assign2 = AtomicAssign(instruction.type, instruction.value, instruction.arguments[1], None)
                     v1 = v.input_vertexes[0]
                     v2 = v.input_vertexes[1]
-                    v1.block.append(assign1)
-                    v2.block.append(assign2)
+                    if len(v1.block) != 0 and isinstance(v1.block[-1], IsTrueInstruction):
+                        v1.block.insert(len(v1.block) - 2, assign1)
+                    else:
+                        v1.block.append(assign1)
+                    if len(v2.block) != 0 and isinstance(v2.block[-1], IsTrueInstruction):
+                        v2.block.insert(len(v2.block) - 2, assign2)
+                    else:
+                        v2.block.append(assign2)
             while len(v.block) > 0 and isinstance(v.block[0], PhiAssign):
                 v.block.pop(0)
 

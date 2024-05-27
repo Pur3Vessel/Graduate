@@ -150,6 +150,10 @@ class AtomicAssign(IR):
                 self.argument = new_op
         if isinstance(self.argument, (FuncCallOperand, ArrayUseOperand)):
             self.argument.rename_operands(name, version)
+        if self.dimentions is not None:
+            for i, d in enumerate(self.dimentions):
+                if isinstance(d, IdOperand) and d.value == name:
+                    self.dimentions[i] = IdOperand(d.value + "_" + str(version))
 
     def get_operands(self):
         if isinstance(self.argument, FuncCallOperand):
@@ -198,6 +202,15 @@ class AtomicAssign(IR):
                         assert type(val) is bool
                         self.argument = BoolConstantOperand(val)
                     return True
+
+        if self.dimentions is not None:
+            for i, d in enumerate(self.dimentions):
+                if d.value in lattice.sl:
+                    val = lattice.sl[d.value]
+                    if not isinstance(val, ConstantLatticeElement):
+                        if type(val) is int:
+                            self.dimentions[i] = IntConstantOperand(val)
+
         return False
 
     def is_def(self, op):
@@ -209,6 +222,10 @@ class AtomicAssign(IR):
             self.argument.remove_versions()
         if isinstance(self.argument, IdOperand):
             self.argument = IdOperand(self.argument.value.split("_")[0])
+        if self.dimentions is not None:
+            for i, d in enumerate(self.dimentions):
+                if isinstance(d, IdOperand):
+                    self.dimentions[i] = IdOperand(d.value.split("_")[0])
 
     def replace_operand(self, name, new_name):
         if isinstance(self.argument, (FuncCallOperand, ArrayUseOperand)):
@@ -219,7 +236,7 @@ class AtomicAssign(IR):
             if self.dimentions is not None:
                 new_dims = []
                 for d in self.dimentions:
-                    if d == name:
+                    if d.value == name:
                         new_dims.append(IdOperand(new_name))
                     else:
                         new_dims.append(d)
@@ -314,10 +331,19 @@ class UnaryAssign(IR):
                 if not isinstance(val, ConstantLatticeElement):
                     if type(val) is int:
                         self.arg = IntConstantOperand(val)
+                    elif type(val) is float:
+                        self.arg = FloatConstantOperand(val)
                     else:
                         assert type(val) is bool
                         self.arg = BoolConstantOperand(val)
                     return True
+        if self.dimentions is not None:
+            for i, d in enumerate(self.dimentions):
+                if d.value in lattice.sl:
+                    val = lattice.sl[d.value]
+                    if not isinstance(val, ConstantLatticeElement):
+                        if type(val) is int:
+                            self.dimentions[i] = IntConstantOperand(val)
         return False
 
     def is_def(self, op):
@@ -348,12 +374,19 @@ class UnaryAssign(IR):
                 reg = "Место в памяти для " + self.value
             argument_reg = self.arg.get_low_ir(scalar_variables)
             if self.type == "float":
-                pass
-            if self.type == "int":
+                code.append(MoveSS("xmm0", argument_reg))
+                code.append(MoveSS("xmm1", "0x80000000"))
+                code.append(Xorps("xmm0", "xmm1"))
+                code.append(MoveSS(reg, "xmm0"))
+            else:
                 if self.op == "not":
-                    pass
+                    code.append(Move("eax", argument_reg))
+                    code.append(Not("eax"))
+                    code.append(Move(reg, "eax"))
                 if self.op == "-":
-                    code.
+                    code.append(Move("eax", argument_reg))
+                    code.append(Neg("eax"))
+                    code.append(Move(reg, "eax"))
             return code
         else:
             return ["Заглушка на присваивание в массив"]
@@ -464,6 +497,14 @@ class BinaryAssign(IR):
                     else:
                         assert type(val) is bool
                         self.right = BoolConstantOperand(val)
+
+        if self.dimentions is not None:
+            for i, d in enumerate(self.dimentions):
+                if d.value in lattice.sl:
+                    val = lattice.sl[d.value]
+                    if not isinstance(val, ConstantLatticeElement):
+                        if type(val) is int:
+                            self.dimentions[i] = IntConstantOperand(val)
         return changed
 
     def is_def(self, op):
@@ -527,14 +568,100 @@ class BinaryAssign(IR):
         if self.dimentions is not None:
             new_dims = []
             for d in self.dimentions:
-                if d == name:
+                print(d, name, new_name)
+                if d.value == name:
                     new_dims.append(IdOperand(new_name))
                 else:
                     new_dims.append(d)
             self.dimentions = new_dims
 
     def get_low_ir(self, scalar_variables):
-        return ["binary_assign_tmp"]
+        code = []
+        if self.dimentions is None:
+            reg = scalar_variables[self.value]
+            if reg == "spilled":
+                reg = "Место в памяти для " + self.value
+            left_reg = self.left.get_low_ir(scalar_variables)
+            right_reg = self.right.get_low_ir(scalar_variables)
+            if self.type == "float":
+                if self.op == "+":
+                    code.append(MoveSS("xmm0", left_reg))
+                    code.append(MoveSS("xmm1", right_reg))
+                    code.append(Addss("xmm0", "xmm1"))
+                    code.append(MoveSS(reg, "xmm0"))
+                if self.op == "-":
+                    code.append(MoveSS("xmm0", left_reg))
+                    code.append(MoveSS("xmm1", right_reg))
+                    code.append(Subss("xmm0", "xmm1"))
+                    code.append(MoveSS(reg, "xmm0"))
+                if self.op == "*":
+                    code.append(MoveSS("xmm0", left_reg))
+                    code.append(MoveSS("xmm1", right_reg))
+                    code.append(Mulss("xmm0", "xmm1"))
+                    code.append(MoveSS(reg, "xmm0"))
+                if self.op == "/":
+                    code.append(MoveSS("xmm0", left_reg))
+                    code.append(MoveSS("xmm1", right_reg))
+                    code.append(Divss("xmm0", "xmm1"))
+                    code.append(MoveSS(reg, "xmm0"))
+            else:
+                if self.op == "and":
+                    code.append(Move("eax", left_reg))
+                    code.append(And("eax", right_reg))
+                    code.append(Move(reg, "eax"))
+                if self.op == "or":
+                    code.append(Move("eax", left_reg))
+                    code.append(Or("eax", right_reg))
+                    code.append(Move(reg, "eax"))
+                if self.op == "+":
+                    code.append(Move("eax", left_reg))
+                    code.append(Add("eax", right_reg))
+                    code.append(Move(reg, "eax"))
+                if self.op == "-":
+                    code.append(Move("eax", left_reg))
+                    code.append(Sub("eax", right_reg))
+                    code.append(Move(reg, "eax"))
+                if self.op == "*":
+                    code.append(Move("eax", left_reg))
+                    code.append(Imul("eax", right_reg))
+                    code.append(Move(reg, "eax"))
+                if self.op == "div":
+                    code.add("Заглушка на div")
+                if self.op == "mod":
+                    code.add("Заглушка на mod")
+                if self.op == ">":
+                    code.append(Cmp(left_reg, right_reg))
+                    code.append(Setg("al"))
+                    code.append(MoveZX("eax", "al"))
+                    code.append(Move(reg, "eax"))
+                if self.op == ">=":
+                    code.append(Cmp(left_reg, right_reg))
+                    code.append(Setge("al"))
+                    code.append(MoveZX("eax", "al"))
+                    code.append(Move(reg, "eax"))
+                if self.op == "<=":
+                    code.append(Cmp(left_reg, right_reg))
+                    code.append(Setle("al"))
+                    code.append(MoveZX("eax", "al"))
+                    code.append(Move(reg, "eax"))
+                if self.op == "==":
+                    code.append(Cmp(left_reg, right_reg))
+                    code.append(Sete("al"))
+                    code.append(MoveZX("eax", "al"))
+                    code.append(Move(reg, "eax"))
+                if self.op == "<":
+                    code.append(Cmp(left_reg, right_reg))
+                    code.append(Setl("al"))
+                    code.append(MoveZX("eax", "al"))
+                    code.append(Move(reg, "eax"))
+                if self.op == "!=":
+                    code.append(Cmp(left_reg, right_reg))
+                    code.append(Setne("al"))
+                    code.append(MoveZX("eax", "al"))
+                    code.append(Move(reg, "eax"))
+            return code
+        else:
+            return ["Заглушка на присваивание в массив"]
 
 
 class PhiAssign(IR):
@@ -643,8 +770,17 @@ class ReturnInstruction(IR):
     def replace_operand(self, name, new_name):
         self.value = IdOperand(new_name)
 
-    def get_low_ir(self, scalar_variables):
-        return ["return_rmp"]
+    def get_low_ir_return(self, scalar_variables, is_entry):
+        code = []
+        if is_entry:
+            code.append(Move("eax", "0x01"))
+            code.append(Xor("ebx", "ebx"))
+            code.append("int 0x80")
+        else:
+            argument_reg = self.value.get_low_ir(scalar_variables)
+            code.append(Move("eax", argument_reg))
+            code.append(Return())
+        return code
 
 
 class IsTrueInstruction(IR):
@@ -689,5 +825,10 @@ class IsTrueInstruction(IR):
     def replace_operand(self, name, new_name):
         self.value = IdOperand(new_name)
 
-    def get_low_ir(self, scalar_variables):
-        return ["is_true_tmp"]
+    def get_low_ir_branch(self, scalar_variables, output_vertexes):
+        code = []
+        argument_reg = self.value.get_low_ir(scalar_variables)
+        code.append(Cmp(argument_reg, "1"))
+        code.append(JumpEqual(output_vertexes[0].label))
+        code.append(Jump(output_vertexes[1].label))
+        return code
