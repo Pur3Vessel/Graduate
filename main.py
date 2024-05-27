@@ -1,6 +1,6 @@
 import builder
 from frontend import *
-from register_allocator import *
+from code_builder import *
 
 
 def opt_pass(tree, j):
@@ -63,12 +63,7 @@ if __name__ == "__main__":
             changed = opt_pass(tree, j)
         print(f"Тест {i} завершился за {j} пассов")
         builder.print_graph(out_file)
-        for func in tree.funcDefs:
-            IFG_scalar = IFG()
-            IFG_scalar.build(builder.contexts[func.name])
-            IFG_file = f"IFG/ifg{i}_{func.name}.txt"
-            IFG_scalar.to_graph(IFG_file)
-            print(IFG_scalar.is_chordal())
-
-
+        code_builder = CodeBuilder(tree.funcDefs, builder, i)
+        code_builder.allocate_registers()
+        code_builder.generate_code()
 

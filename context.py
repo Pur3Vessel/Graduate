@@ -29,7 +29,7 @@ class Context:
             self.count = 1
             self.stack.clear()
             self.stack.append(0)
-            self.change_numeration_by_name(name)
+            self.change_numeration_by_name(name[0])
 
     def change_numeration_by_name(self, name):
         self.traverse(self.graph.vertexes[1], name)
@@ -62,14 +62,14 @@ class Context:
 
     def place_phi(self):
         for name in self.names:
-            using_set = self.graph.get_all_assign(name)
+            using_set = self.graph.get_all_assign(name[0])
             places = self.graph.make_dfp(using_set)
             for place in places:
                 phi_args = []
                 for _ in place.input_vertexes:
-                    phi_args.append(name)
+                    phi_args.append(name[0])
                 phi_args = list(map(lambda x: IdOperand(x), phi_args))
-                phi_expr = PhiAssign(name, phi_args)
+                phi_expr = PhiAssign(name[1], name[0], phi_args)
                 place.insert_head(phi_expr)
 
     def loop_invariant_code_motion(self, is_preheader):
@@ -401,7 +401,8 @@ class Context:
         names = {}
         for v in self.graph.vertexes:
             for instruction in v.block:
-                if isinstance(instruction, AtomicAssign) and isinstance(instruction.argument, IdOperand) and instruction.dimentions is None:
+                if isinstance(instruction, AtomicAssign) and isinstance(instruction.argument,
+                                                                        IdOperand) and instruction.dimentions is None:
                     names[instruction.value] = instruction.argument.value
 
         for name in names.keys():
@@ -436,7 +437,7 @@ class Context:
         for v in self.graph.vertexes:
             for instr in v.block:
                 if is_assign(instr) and instr.dimentions is None and len(instr.value.split("$")) == 1:
-                    self.names.add(instr.value)
+                    self.names.add((instr.value, instr.type))
 
     def get_variables(self):
         variables = []
@@ -456,10 +457,46 @@ class Context:
                                 variables.append(d)
         return variables
 
+    def get_int_variables(self):
+        variables = []
+        for v in self.graph.vertexes:
+            for instruction in v.block:
+                if isinstance(instruction,
+                              (AtomicAssign, BinaryAssign,
+                               UnaryAssign)) and instruction.dimentions is None and (instruction.type == "int" or instruction.type == "bool"):
+                    variables.append(instruction.value)
+                if isinstance(instruction, PhiAssign) and (instruction.type == "int" or instruction.type == "bool"):
+                    variables.append(instruction.value)
+                if isinstance(instruction, FuncDefInstruction):
+                    for arg in instruction.arguments:
+                        if arg.dimentions is None and (arg.type == "int" or arg.type == "bool"):
+                            variables.append(arg.name)
+                        else:
+                            for d in arg.dimentions:
+                                variables.append(d)
+        return variables
+
+    def get_float_variables(self):
+        variables = []
+        for v in self.graph.vertexes:
+            for instruction in v.block:
+                if isinstance(instruction,
+                              (AtomicAssign, BinaryAssign,
+                               UnaryAssign)) and instruction.dimentions is None and instruction.type == "float":
+                    variables.append(instruction.value)
+                if isinstance(instruction, PhiAssign) and instruction.type == "float":
+                    variables.append(instruction.value)
+                if isinstance(instruction, FuncDefInstruction):
+                    for arg in instruction.arguments:
+                        if arg.dimentions is None and arg.type == "float":
+                            variables.append(arg.name)
+        return variables
+
     def get_assign_instruction_and_block(self, var):
         for v in self.graph.vertexes:
             for instrunction in v.block:
-                if isinstance(instrunction, (AtomicAssign, UnaryAssign, BinaryAssign)) and instrunction.dimentions is None and instrunction.value == var:
+                if isinstance(instrunction, (AtomicAssign, UnaryAssign,
+                                             BinaryAssign)) and instrunction.dimentions is None and instrunction.value == var:
                     return instrunction, v
                 if isinstance(instrunction, PhiAssign) and instrunction.value == var:
                     return instrunction, v
@@ -562,7 +599,21 @@ class Context:
             var_number = instruction.operand_number(var)
             other_var_number = instruction.operand_number(other_var)
         return var_number == other_var_number
-    #def get_use_blocks(self, var):
+
+    def quit_ssa(self):
+        for v in self.graph.vertexes:
+            for instruction in v.block:
+                if isinstance(instruction, PhiAssign):
+                    assign1 = AtomicAssign(instruction.type, instruction.value, instruction.arguments[0], None)
+                    assign2 = AtomicAssign(instruction.type, instruction.value, instruction.arguments[1], None)
+                    v1 = v.input_vertexes[0]
+                    v2 = v.input_vertexes[1]
+                    v1.block.append(assign1)
+                    v2.block.append(assign2)
+            while len(v.block) > 0 and isinstance(v.block[0], PhiAssign):
+                v.block.pop(0)
+
+    # def get_use_blocks(self, var):
     #    use_blocks = []
     #    for v in self.graph.vertexes:
     #        for instruction in v.block:
@@ -571,7 +622,7 @@ class Context:
     #                break
     #    return use_blocks
 
-    #def get_liveness(self, var):
+    # def get_liveness(self, var):
     #    self.graph.build_dominators_tree()
     #    liveness = set()
     #    assign_block = self.get_assign_block(var)

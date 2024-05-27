@@ -577,3 +577,11 @@ class Graph:
             if len(v.output_vertexes) == 2 and v.output_vertexes[0].number == v.output_vertexes[1].number:
                 v.output_vertexes.pop()
                 del v.block[-1]
+
+    def set_labels(self):
+        n = 0
+        for v in self.vertexes:
+            if v.label is None:
+                v.label = "block_" + str(n)
+                n += 1
+

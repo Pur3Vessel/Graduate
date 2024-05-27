@@ -1,4 +1,5 @@
 from operands import *
+from low_IR import *
 
 
 def nested_list_to_str(nested_list):
@@ -42,7 +43,8 @@ class BinaryOperations(Enum):
 
 
 class IR(ABC):
-    pass
+    def get_low_ir(self, scalar_variables):
+        return []
 
 
 class NullInstruction(IR):
@@ -121,6 +123,9 @@ class ArrayInitInstruction(IR):
 
     def is_use_op(self, op):
         return False
+
+    def get_low_ir(self, scalar_variables):
+        return ["array_init_tmp"]
 
 
 class AtomicAssign(IR):
@@ -220,6 +225,35 @@ class AtomicAssign(IR):
                         new_dims.append(d)
                 self.dimentions = new_dims
 
+    def get_low_ir(self, scalar_variables):
+        code = []
+        if self.dimentions is None:
+            reg = scalar_variables[self.value]
+            if reg == "spilled":
+                reg = "Место в памяти для " + self.value
+            if isinstance(self.argument, (IntConstantOperand, BoolConstantOperand, FloatConstantOperand, IdOperand)):
+                argument_reg = self.argument.get_low_ir(scalar_variables)
+                if self.type == "float":
+                    code.append(MoveSS(reg, argument_reg))
+                else:
+                    code.append(Move(reg, argument_reg))
+            if isinstance(self.argument, FuncCallOperand):
+                code += self.argument.get_call_instructions(scalar_variables)
+                if self.type == "float":
+                    pass
+                else:
+                    code.append(Move(reg, "eax"))
+            if isinstance(self.argument, ArrayUseOperand):
+                code += self.argument.get_indexing_instructions(scalar_variables)
+                src = self.argument.get_source()
+                if self.type == "float":
+                    code.append(MoveSS(reg, src))
+                else:
+                    code.append(Move(reg, src))
+            return code
+        else:
+            return ["Заглушка на присваивание в массив"]
+
 
 class UnaryAssign(IR):
     def __init__(self, type, value, op, argument, dimentions):
@@ -305,6 +339,24 @@ class UnaryAssign(IR):
             self.dimentions = new_dims
         if self.arg.value == name:
             self.arg = IdOperand(new_name)
+
+    def get_low_ir(self, scalar_variables):
+        code = []
+        if self.dimentions is None:
+            reg = scalar_variables[self.value]
+            if reg == "spilled":
+                reg = "Место в памяти для " + self.value
+            argument_reg = self.arg.get_low_ir(scalar_variables)
+            if self.type == "float":
+                pass
+            if self.type == "int":
+                if self.op == "not":
+                    pass
+                if self.op == "-":
+                    code.
+            return code
+        else:
+            return ["Заглушка на присваивание в массив"]
 
 
 class BinaryAssign(IR):
@@ -481,15 +533,19 @@ class BinaryAssign(IR):
                     new_dims.append(d)
             self.dimentions = new_dims
 
+    def get_low_ir(self, scalar_variables):
+        return ["binary_assign_tmp"]
+
 
 class PhiAssign(IR):
-    def __init__(self, value, arguments):
+    def __init__(self, type, value, arguments):
+        self.type = type
         self.value = value
         self.arguments = arguments
         self.dimentions = None
 
     def __str__(self):
-        s = self.value + " <- PHI("
+        s = self.type + " " + self.value + " <- PHI("
         for i, arg in enumerate(self.arguments):
             s += str(arg)
             if i != len(self.arguments) - 1:
@@ -535,13 +591,13 @@ class PhiAssign(IR):
         return self.arguments[i].value == op
 
     def replace_operand(self, name, new_name):
-        #new_args = []
-        #for arg in self.arguments:
+        # new_args = []
+        # for arg in self.arguments:
         #    if arg.value == name:
         #        new_args.append(IdOperand(new_name))
         #    else:
         #        new_args.append(arg)
-        #self.arguments = new_args
+        # self.arguments = new_args
         pass
 
 
@@ -587,7 +643,8 @@ class ReturnInstruction(IR):
     def replace_operand(self, name, new_name):
         self.value = IdOperand(new_name)
 
-
+    def get_low_ir(self, scalar_variables):
+        return ["return_rmp"]
 
 
 class IsTrueInstruction(IR):
@@ -631,3 +688,6 @@ class IsTrueInstruction(IR):
 
     def replace_operand(self, name, new_name):
         self.value = IdOperand(new_name)
+
+    def get_low_ir(self, scalar_variables):
+        return ["is_true_tmp"]

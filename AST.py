@@ -404,7 +404,7 @@ class VarDeclAction(Action):
     def generate(self):
         type = str(self.type)
         for init in self.varDeclInits:
-            builder.context.names.add(init.name)
+            builder.context.names.add((init.name, str(self.type)))
             if isinstance(init.assign, EmptyExpression):
                 new_IR = AtomicAssign(type, init.name, IntConstantOperand(0), None)
                 builder.add_expression(new_IR)
@@ -850,7 +850,7 @@ class ForAction(Action):
         place_assigns(init_assigns)
         init_IR = AtomicAssign("int", self.var_name, IdOperand(init_tmp), None)
         builder.add_expression(init_IR)
-        builder.context.names.add(self.var_name)
+        builder.context.names.add((self.var_name, "int"))
 
         end_assigns, end_tmp = simplify_expression(self.end)
         place_assigns(end_assigns)

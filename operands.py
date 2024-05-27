@@ -3,7 +3,8 @@ from lattice import *
 
 
 class Operand(ABC):
-    pass
+    def get_low_ir(self, scalar_variables):
+        pass
 
 
 class IdOperand(Operand):
@@ -13,12 +14,21 @@ class IdOperand(Operand):
     def __str__(self):
         return self.value
 
+    def get_low_ir(self, scalar_variables):
+        reg = scalar_variables[self.value]
+        if reg == "spilled":
+            reg = "Место в памяти для " + self.value
+        return reg
+
 
 class FloatConstantOperand(Operand):
     def __init__(self, value):
         self.value = value
 
     def __str__(self):
+        return str(self.value)
+
+    def get_low_ir(self, scalar_variables):
         return str(self.value)
 
 
@@ -29,6 +39,9 @@ class IntConstantOperand(Operand):
     def __str__(self):
         return str(self.value)
 
+    def get_low_ir(self, scalar_variables):
+        return str(self.value)
+
 
 class BoolConstantOperand(Operand):
     def __init__(self, value):
@@ -36,6 +49,12 @@ class BoolConstantOperand(Operand):
 
     def __str__(self):
         return str(self.value)
+
+    def get_low_ir(self, scalar_variables):
+        if self.value:
+            return "1"
+        else:
+            return "0"
 
 
 class ArrayUseOperand(Operand):
