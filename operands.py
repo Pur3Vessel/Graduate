@@ -1,5 +1,63 @@
-from abc import ABC
 from lattice import *
+from low_IR import *
+
+
+def generate_array_index_code(name, dimentions, scalar_variables, array_adresses, used_regs):
+    code = []
+    pop_intr = []
+    info = array_adresses[name]
+    addr = info[0]
+    dimentions_sizes = info[2]
+    r = ""
+    if info[1]:
+        for reg in regs:
+            if reg not in used_regs:
+                used_regs.append(reg)
+                r = reg
+                code.append(Push(reg))
+                code.append(Move(reg, addr))
+                addr = reg
+                break
+    addr = addr.replace("[", "").replace("]", "")
+    n_dims = len(dimentions)
+    assert n_dims < 5
+    index_regs = []
+    if n_dims == 1:
+        n_regs = 1
+    else:
+        n_regs = n_dims - 1
+    for i in range(n_regs):
+        for reg in regs:
+            if reg not in used_regs and reg not in index_regs:
+                index_regs.append(reg)
+                break
+    for reg in index_regs:
+        code.append(Push(reg))
+
+    if n_dims == 1:
+        dim_reg = dimentions[0].get_low_ir(scalar_variables)
+        code.append(Move(index_regs[0], dim_reg))
+    else:
+        for i, reg in enumerate(index_regs):
+            dim_reg = dimentions[i].get_low_ir(scalar_variables)
+            code.append(Move(reg, dim_reg))
+            for size in dimentions_sizes[i+1:]:
+                if type(size) != int:
+                    size_reg = scalar_variables[size]
+                else:
+                    size_reg = size
+                code.append(Imul(reg, str(size_reg)))
+        for reg in enumerate(index_regs[1:]):
+            code.append(Add(index_regs[0], reg))
+        dim_reg = dimentions[-1].get_low_ir(scalar_variables)
+        code.append(Add(index_regs[0], dim_reg))
+    for reg in index_regs[::-1]:
+        pop_intr.append(Pop(reg))
+    if info[1]:
+        pop_intr.append(Pop(r))
+
+    src = "[" + addr + " + " + index_regs[0]
+    return code, src, pop_intr
 
 
 class Operand(ABC):
@@ -120,12 +178,6 @@ class ArrayUseOperand(Operand):
                 new_args.append(arg)
         self.indexing = new_args
 
-    def get_indexing_instructions(self, scalar_variables):
-        return []
-
-    def get_source(self):
-        return "Заглушка для source"
-
 
 class FuncCallOperand(Operand):
     def __init__(self, func_name, arguments):
@@ -190,8 +242,40 @@ class FuncCallOperand(Operand):
                 new_args.append(arg)
         self.args = new_args
 
-    def get_call_instructions(self, scalar_variables):
-        return []
+    def get_call_instructions(self, scalar_variables, array_adresses):
+        params_sdvig = 0
+        load_params = []
+        remove_params = []
+
+        for arg in self.args[::-1]:
+            if arg.value in scalar_variables:
+                reg = arg.get_low_ir(scalar_variables)
+                load_params.append(Push(reg))
+                params_sdvig += 4
+            elif arg.value in array_adresses:
+                info = array_adresses[arg.value]
+                for dim in info[2][::-1]:
+                    if type(dim) == int:
+                        load_params.append(Push(str(dim)))
+                    else:
+                        reg = dim.get_low_ir(scalar_variables)
+                        load_params.append(Push(reg))
+                    params_sdvig += 4
+                if info[1]:
+                    load_params.append(Push(info[0]))
+                else:
+                    load_params.append(Lea("eax", info[0]))
+                    load_params.append(Push("eax"))
+                params_sdvig += 4
+            else:
+                reg = arg.get_low_ir(scalar_variables)
+                load_params.append(Push(reg))
+                params_sdvig += 4
+
+        if params_sdvig != 0:
+            remove_params.append(Add("esp", str(params_sdvig)))
+
+        return load_params, remove_params
 
 
 class FuncArgOperand(Operand):

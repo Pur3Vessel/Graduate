@@ -1,5 +1,5 @@
 from operands import *
-from low_IR import *
+import functools
 
 
 def nested_list_to_str(nested_list):
@@ -14,6 +14,20 @@ def convert_to_int(nested_list):
     elif isinstance(nested_list, float):
         return int(nested_list)
     return nested_list
+
+
+def flatten(nested_list):
+    flat_list = []
+
+    def _flatten(sublist):
+        if isinstance(sublist, list):
+            for item in sublist:
+                _flatten(item)
+        else:
+            flat_list.append(sublist)
+
+    _flatten(nested_list)
+    return flat_list
 
 
 def is_assign(stmt):
@@ -124,8 +138,28 @@ class ArrayInitInstruction(IR):
     def is_use_op(self, op):
         return False
 
-    def get_low_ir(self, scalar_variables):
-        return ["array_init_tmp"]
+    def get_low_ir_arr_decl(self, array_adresses):
+        code = []
+        n_elems = functools.reduce(lambda x, y: x * y, self.dimentions)
+        sdvig = 0
+        if self.assign is None:
+            adress = array_adresses[self.name][0].replace("[", "").replace("]", "")
+            for i in range(n_elems):
+                if self.type == "float":
+                    code.append(MoveSS("[" + adress + " + " + str(sdvig) + "]", str(0)))
+                else:
+                    code.append(Move("[" + adress + " + " + str(sdvig) + "]", str(0)))
+            sdvig += 4
+        else:
+            elems = flatten(self.assign)
+            adress = array_adresses[self.name][0].replace("[", "").replace("]", "")
+            for i in range(n_elems):
+                if self.type == "float":
+                    code.append(MoveSS("[" + adress + " + " + str(sdvig) + "]", str(elems[i])))
+                else:
+                    code.append(Move("[" + adress + " + " + str(sdvig) + "]", str(elems[i])))
+            sdvig += 4
+        return code
 
 
 class AtomicAssign(IR):
@@ -156,11 +190,18 @@ class AtomicAssign(IR):
                     self.dimentions[i] = IdOperand(d.value + "_" + str(version))
 
     def get_operands(self):
+        operands = []
+        if self.dimentions is not None:
+            for dim in self.dimentions:
+                operands.append(dim)
         if isinstance(self.argument, FuncCallOperand):
-            return self.argument.get_operands()
+            operands += self.argument.get_operands()
+            return operands
         if isinstance(self.argument, ArrayUseOperand):
-            return self.argument.get_operands()
-        return [self.argument]
+            operands += self.argument.get_operands()
+            return operands
+        operands.append(self.argument)
+        return operands
 
     def is_use_op(self, value):
         if self.dimentions is not None:
@@ -242,7 +283,7 @@ class AtomicAssign(IR):
                         new_dims.append(d)
                 self.dimentions = new_dims
 
-    def get_low_ir(self, scalar_variables):
+    def get_low_ir_arr(self, scalar_variables, array_adresses):
         code = []
         if self.dimentions is None:
             reg = scalar_variables[self.value]
@@ -255,21 +296,46 @@ class AtomicAssign(IR):
                 else:
                     code.append(Move(reg, argument_reg))
             if isinstance(self.argument, FuncCallOperand):
-                code += self.argument.get_call_instructions(scalar_variables)
+                code.append(Push("ecx"))
+                code.append(Push("edx"))
+                load_params, remove_params = self.argument.get_call_instructions(scalar_variables, array_adresses)
+                code += load_params
+                code.append(Call(self.argument.name))
                 if self.type == "float":
-                    pass
+                    if reg in xmm_regs:
+                        code.append(Sub("esp", "4"))
+                        code.append(Fstp("dword [esp]"))
+                        code.append(MoveSS(reg, "dword [esp]"))
+                        code.append(Add("esp", "4"))
+                    else:
+                        code.append(Fstp("dword " + reg))
                 else:
                     code.append(Move(reg, "eax"))
+                code += remove_params
+                code.append(Pop("edx"))
+                code.append(Pop("ecx"))
             if isinstance(self.argument, ArrayUseOperand):
-                code += self.argument.get_indexing_instructions(scalar_variables)
-                src = self.argument.get_source()
+                reg = scalar_variables[self.value]
+                arr_code, src, pop_intr = generate_array_index_code(self.argument.name, self.argument.indexing,
+                                                                    scalar_variables, array_adresses, [reg])
+                code += arr_code
                 if self.type == "float":
                     code.append(MoveSS(reg, src))
                 else:
                     code.append(Move(reg, src))
+                code += pop_intr
             return code
         else:
-            return ["Заглушка на присваивание в массив"]
+            reg = self.argument.get_low_ir(scalar_variables)
+            arr_code, src, pop_intr = generate_array_index_code(self.value, self.dimentions,
+                                                                scalar_variables, array_adresses, [reg])
+            code += arr_code
+            if self.type == "float":
+                code.append(MoveSS(src, reg))
+            else:
+                code.append(Move(src, reg))
+            code += pop_intr
+            return code
 
 
 class UnaryAssign(IR):
@@ -388,8 +454,6 @@ class UnaryAssign(IR):
                     code.append(Neg("eax"))
                     code.append(Move(reg, "eax"))
             return code
-        else:
-            return ["Заглушка на присваивание в массив"]
 
 
 class BinaryAssign(IR):
@@ -660,8 +724,6 @@ class BinaryAssign(IR):
                     code.append(MoveZX("eax", "al"))
                     code.append(Move(reg, "eax"))
             return code
-        else:
-            return ["Заглушка на присваивание в массив"]
 
 
 class PhiAssign(IR):
@@ -770,7 +832,7 @@ class ReturnInstruction(IR):
     def replace_operand(self, name, new_name):
         self.value = IdOperand(new_name)
 
-    def get_low_ir_return(self, scalar_variables, is_entry):
+    def get_low_ir_return(self, scalar_variables, is_entry, type):
         code = []
         if is_entry:
             code.append(Move("eax", "0x01"))
@@ -778,7 +840,15 @@ class ReturnInstruction(IR):
             code.append("int 0x80")
         else:
             argument_reg = self.value.get_low_ir(scalar_variables)
-            code.append(Move("eax", argument_reg))
+            if type == "float":
+                code.append(Fld("dword " + argument_reg))
+            else:
+                code.append(Move("eax", argument_reg))
+            code.append(Pop("esi"))
+            code.append(Pop("edi"))
+            code.append(Pop("ebx"))
+            code.append(Move("esp", "ebp"))
+            code.append(Pop("ebp"))
             code.append(Return())
         return code
 

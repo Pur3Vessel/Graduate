@@ -1,5 +1,8 @@
 from abc import ABC
 
+regs = ["eax", "ebx", "ecx", "edx", "esi", "edi"]
+xmm_regs = {"xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7"}
+
 color_to_regs = {
     1: "ebx",
     2: "ecx",
@@ -266,3 +269,52 @@ class Cvtsi2ss(LowIR):
 
     def __str__(self):
         return "cvtsi2ss " + self.arg1 + ", " + self.arg2
+
+
+class Lea(LowIR):
+    def __init__(self, arg1, arg2):
+        self.arg1 = arg1
+        self.arg2 = arg2
+
+    def __str__(self):
+        return "lea " + self.arg1 + ", " + self.arg2
+
+
+class Push(LowIR):
+    def __init__(self, arg):
+        self.arg = arg
+
+    def __str__(self):
+        return "push " + self.arg
+
+
+class Pop(LowIR):
+    def __init__(self, arg):
+        self.arg = arg
+
+    def __str__(self):
+        return "pop " + self.arg
+
+
+class Call(LowIR):
+    def __init__(self, arg):
+        self.arg = arg
+
+    def __str__(self):
+        return "call " + self.arg
+
+
+class Fld(LowIR):
+    def __init__(self, arg):
+        self.arg = arg
+
+    def __str__(self):
+        return "fld " + self.arg
+
+
+class Fstp(LowIR):
+    def __init__(self, arg):
+        self.arg = arg
+
+    def __str__(self):
+        return "fstp " + self.arg

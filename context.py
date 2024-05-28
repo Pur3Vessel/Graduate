@@ -621,29 +621,11 @@ class Context:
             while len(v.block) > 0 and isinstance(v.block[0], PhiAssign):
                 v.block.pop(0)
 
-    # def get_use_blocks(self, var):
-    #    use_blocks = []
-    #    for v in self.graph.vertexes:
-    #        for instruction in v.block:
-    #            if instruction.is_use_op(var):
-    #                use_blocks.append(v)
-    #                break
-    #    return use_blocks
+    def get_declared_arrays(self):
+        arrays = []
+        for v in self.graph.vertexes:
+            for instruction in v.block:
+                if isinstance(instruction, ArrayInitInstruction):
+                    arrays.append((instruction.name, instruction.dimentions, instruction.assign))
+        return arrays
 
-    # def get_liveness(self, var):
-    #    self.graph.build_dominators_tree()
-    #    liveness = set()
-    #    assign_block = self.get_assign_block(var)
-    #    use_blocks = self.get_use_blocks(var)
-    #    liveness.add(assign_block.number)
-    #    for b in use_blocks:
-    #        if b.number == assign_block.number:
-    #            continue
-    #        liveness.add(b.number)
-    #        idom = b.idom
-    #        while True:
-    #            if idom is None or idom.number == assign_block.number:
-    #                break
-    #            liveness.add(idom.number)
-    #            idom = idom.idom
-    #    return liveness
