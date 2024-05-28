@@ -2,7 +2,6 @@ from register_allocator import *
 from IR import *
 
 
-
 class CodeBuilder:
     def __init__(self, func_defs, builder, i):
         self.func_defs = func_defs
@@ -12,7 +11,8 @@ class CodeBuilder:
         for func in self.func_defs:
             func_name = func.name
             is_entry = True if func_name == "main" else False
-            self.context_builders[func_name] = ContextBuilder(self.builder.contexts[func_name], func_name, str(func.return_type),is_entry,
+            self.context_builders[func_name] = ContextBuilder(self.builder.contexts[func_name], func_name,
+                                                              str(func.return_type), is_entry,
                                                               self.i)
 
     def allocate_registers(self):
@@ -43,12 +43,15 @@ class CodeBuilder:
         if len(decl_arrays) != 0:
             code += "section .data\n"
             for arr in decl_arrays:
-                code += "\t" + arr + " db " + ", ".join(list(map(lambda x: str(x),flatten(array_adresses[arr][3]))))
+                code += "\t" + arr + " dd " + ", ".join(
+                    list(map(lambda x: str(x), flatten(array_adresses[arr][3])))) + "\n"
+
         code += "section .text\n"
         code += "\tglobal _start"
         for context_builder in self.context_builders.values():
             if not context_builder.is_entry:
                 code += ", " + context_builder.func_name
+        code += "\n"
         for context_builder in self.context_builders.values():
             code += str(context_builder)
         with open(f"asm/program{self.i}.asm", 'w') as file:
@@ -69,6 +72,9 @@ class ContextBuilder:
 
     def allocate_registers(self):
         self.context.build_lives()
+        #if self.i == 1:
+        #    for label, lives in self.context.labels_to_live.items():
+        #        print(label, lives)
         k_reg = len(color_to_regs)
         k_xmm_reg = len(color_to_xmm_regs)
         int_ifg = IFG(k_reg)
@@ -76,6 +82,9 @@ class ContextBuilder:
 
         int_ifg.build(self.context, True, [], [])
         spill_var = int_ifg.try_color()
+        if self.i == 1 and self.func_name == "tile":
+            int_ifg.to_graph("IFG/ifg.txt")
+
         spill_vars = []
         while spill_var is not None:
             spill_vars.append(spill_var)
@@ -151,7 +160,7 @@ class ContextBuilder:
                     if is_arg:
                         self.scalar_variables[var] = "[ebp " + sdvig + "]"
                     else:
-                        self.local_sdvig -= 4
+                        self.local_sdvig += 4
                         self.scalar_variables[var] = "[ebp - " + str(self.local_sdvig) + "]"
 
         declared_arrays = self.context.get_declared_arrays()
@@ -160,12 +169,20 @@ class ContextBuilder:
                 self.array_adresses[array[0]] = ("[" + array[0] + "]", False, array[1], array[2])
             else:
                 n_bytes = 4 * functools.reduce(lambda x, y: x * y, array[1])
-                self.local_sdvig -= n_bytes
+                self.local_sdvig += n_bytes
                 self.array_adresses[array[0]] = ("[ebp - " + str(self.local_sdvig) + "]", False, array[1])
 
         array_params = self.get_array_args()
         for param in array_params:
             self.array_adresses[param[0]] = (param[1], True, param[2])
+
+        #if self.i == 1:
+        #    for var, label in self.scalar_variables.items():
+        #        print(var, label)
+        #    print("=========")
+        #    for var, label in self.array_adresses.items():
+        #        print(var, label)
+        #    print("-------------")
 
     def get_entry_info(self):
         if self.is_entry:
@@ -186,6 +203,7 @@ class ContextBuilder:
             for var, reg in self.scalar_variables.items():
                 is_arg, sdvig = self.is_scalar_arg(var)
                 if is_arg:
+                    # print(var, reg, sdvig)
                     if reg in regs:
                         code.append(Move(reg, "[ebp " + sdvig + "]"))
                     if reg in xmm_regs:
@@ -195,7 +213,6 @@ class ContextBuilder:
     def generate_context(self):
         self.code = []
         self.context.quit_ssa()
-        self.context.graph.set_labels()
         self.code += self.generate_entry_block()
         first = self.context.graph.vertexes[1]
         stack = [first]

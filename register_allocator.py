@@ -94,6 +94,8 @@ class IFG:
                     continue
                 for label, lives in context.labels_to_live.items():
                     if var in lives and other_var in lives:
+                        #if var == "i_2":
+                        #    print(var, other_var, context.not_phi_once(label, var, other_var))
                         if context.not_phi_once(label, var, other_var):
                             v1 = self.get_vertex(var)
                             v2 = self.get_vertex(other_var)
@@ -166,7 +168,7 @@ class IFG:
 
     def choose_spill(self):
         self.vertexes = sorted(self.vertexes, key=lambda x: len(x.adjacency), reverse=True)
-        return self.vertexes[0]
+        return self.vertexes[0].value
 
     def color(self, order):
         self.vars_to_color = {}

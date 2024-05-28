@@ -517,6 +517,7 @@ class Context:
         self.labels_to_live[label].add(var)
 
     def add_live_labels_list(self, labels, var):
+        var = var.replace("$", "_")
         for label in labels:
             self.add_live(label, var)
 
@@ -598,9 +599,12 @@ class Context:
         var_number = -1
         other_var_number = -1
         for instruction in instructions:
-            var_number = instruction.operand_number(var)
-            other_var_number = instruction.operand_number(other_var)
-        return var_number == other_var_number
+            if var_number == -1:
+                var_number = instruction.operand_number(var)
+            if other_var_number == -1:
+                other_var_number = instruction.operand_number(other_var)
+
+        return var_number == other_var_number or var_number == -1 or other_var_number == -1
 
     def quit_ssa(self):
         for v in self.graph.vertexes:
@@ -611,11 +615,11 @@ class Context:
                     v1 = v.input_vertexes[0]
                     v2 = v.input_vertexes[1]
                     if len(v1.block) != 0 and isinstance(v1.block[-1], IsTrueInstruction):
-                        v1.block.insert(len(v1.block) - 2, assign1)
+                        v1.block.insert(len(v1.block) - 1, assign1)
                     else:
                         v1.block.append(assign1)
                     if len(v2.block) != 0 and isinstance(v2.block[-1], IsTrueInstruction):
-                        v2.block.insert(len(v2.block) - 2, assign2)
+                        v2.block.insert(len(v2.block) - 1, assign2)
                     else:
                         v2.block.append(assign2)
             while len(v.block) > 0 and isinstance(v.block[0], PhiAssign):

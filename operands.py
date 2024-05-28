@@ -9,9 +9,14 @@ def generate_array_index_code(name, dimentions, scalar_variables, array_adresses
     addr = info[0]
     dimentions_sizes = info[2]
     r = ""
+
+    dimentions_regs = []
+    for dim in dimentions:
+        dimentions_regs.append(dim.get_low_ir(scalar_variables))
+
     if info[1]:
         for reg in regs:
-            if reg not in used_regs:
+            if reg not in used_regs and reg not in dimentions_regs:
                 used_regs.append(reg)
                 r = reg
                 code.append(Push(reg))
@@ -26,20 +31,33 @@ def generate_array_index_code(name, dimentions, scalar_variables, array_adresses
         n_regs = 1
     else:
         n_regs = n_dims - 1
+
+
+    last_dim_reg = dimentions_regs[-1]
+    if n_dims == 1:
+        last_dim_reg = ""
+
     for i in range(n_regs):
-        for reg in regs:
-            if reg not in used_regs and reg not in index_regs:
-                index_regs.append(reg)
-                break
+        if dimentions_regs[i] in regs:
+            index_regs.append(dimentions_regs[i])
+        else:
+            index_regs.append("spilled")
+
+    for i in range(n_regs):
+        if index_regs[i] == "spilled":
+            for reg in regs:
+                if reg not in used_regs and reg not in index_regs and reg != last_dim_reg:
+                    index_regs[i] = reg
+
     for reg in index_regs:
         code.append(Push(reg))
 
     if n_dims == 1:
-        dim_reg = dimentions[0].get_low_ir(scalar_variables)
+        dim_reg = dimentions_regs[0]
         code.append(Move(index_regs[0], dim_reg))
     else:
         for i, reg in enumerate(index_regs):
-            dim_reg = dimentions[i].get_low_ir(scalar_variables)
+            dim_reg = dimentions_regs[i]
             code.append(Move(reg, dim_reg))
             for size in dimentions_sizes[i+1:]:
                 if type(size) != int:
@@ -56,7 +74,7 @@ def generate_array_index_code(name, dimentions, scalar_variables, array_adresses
     if info[1]:
         pop_intr.append(Pop(r))
 
-    src = "[" + addr + " + " + index_regs[0]
+    src = "[" + addr + " + " + index_regs[0] + ']'
     return code, src, pop_intr
 
 
