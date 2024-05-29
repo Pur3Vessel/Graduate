@@ -19,10 +19,10 @@ def is_cmp_op(op):
     return op == "==" or op == "!=" or op == ">" or op == "<" or op == ">=" or op == "<="
 
 
-def float_to_ieee_754_hex(num):
-    ieee_754_bytes = struct.pack('>f', num)
-    ieee_754_hex = '0x' + ''.join(f'{byte:02x}' for byte in ieee_754_bytes)
-    return ieee_754_hex
+def float_to_ieee754(value):
+    packed_value = struct.pack('>f', value)
+    ieee754_hex = packed_value.hex()
+    return "0x" + ieee754_hex
 
 
 def nested_list_to_str(nested_list):
@@ -169,9 +169,9 @@ class ArrayInitInstruction(IR):
             adress = array_adresses[self.name][0].replace("[", "").replace("]", "")
             for i in range(n_elems):
                 if self.type == "float":
-                    code.append(MoveSS("[" + adress + " + " + str(sdvig) + "]", str(0)))
+                    code.append(Move("[" + adress + " + " + str(sdvig) + "]", "dword " + str(0)))
                 else:
-                    code.append(Move("[" + adress + " + " + str(sdvig) + "]", str(0)))
+                    code.append(Move("[" + adress + " + " + str(sdvig) + "]", "dword " + str(0)))
                 sdvig += 4
         else:
             elems = flatten(self.assign)
@@ -179,7 +179,7 @@ class ArrayInitInstruction(IR):
             for i in range(n_elems):
                 if self.type == "float":
                     code.append(
-                        MoveSS("[" + adress + " + " + str(sdvig) + "]", "dword " + float_to_ieee_754_hex(elems[i])))
+                        Move("[" + adress + " + " + str(sdvig) + "]", "dword " + float_to_ieee754(elems[i])))
                 else:
                     code.append(Move("[" + adress + " + " + str(sdvig) + "]", "dword " + str(elems[i])))
                 sdvig += 4
@@ -315,10 +315,19 @@ class AtomicAssign(IR):
             if reg == "spilled":
                 reg = "Место в памяти для " + self.value
             if isinstance(self.argument, (IntConstantOperand, BoolConstantOperand, FloatConstantOperand, IdOperand)):
-                argument_reg = self.argument.get_low_ir(scalar_variables)
                 if self.type == "float":
-                    code.append(MoveSS(reg, argument_reg))
+                    if isinstance(self.argument, (IntConstantOperand, FloatConstantOperand)):
+                        argument_reg = float_to_ieee754(self.argument.value)
+                    else:
+                        argument_reg = self.argument.get_low_ir(scalar_variables)
+                    if argument_reg not in xmm_regs:
+                        code.append(Move("dword [esp]", argument_reg))
+                        code.append(MoveSS(reg, "[esp]"))
+                        code.append(Add("esp", "4"))
+                    else:
+                        code.append(MoveSS(reg, argument_reg))
                 else:
+                    argument_reg = self.argument.get_low_ir(scalar_variables)
                     code.append(Move(reg, argument_reg))
             if isinstance(self.argument, FuncCallOperand):
                 code.append(Push("ecx"))
@@ -482,13 +491,15 @@ class UnaryAssign(IR):
 
 
 class BinaryAssign(IR):
-    def __init__(self, type, value, op, left, right, dimentions):
+    def __init__(self, type, value, op, left, right, dimentions, left_type, right_type):
         self.type = type
         self.value = value
         self.op = op
         self.left = left
         self.right = right
         self.dimentions = dimentions
+        self.left_type = left_type
+        self.right_type = right_type
 
     def __str__(self):
         d = ""
@@ -667,40 +678,123 @@ class BinaryAssign(IR):
     def get_low_ir(self, scalar_variables):
         if isinstance(self.left, (IntConstantOperand, FloatConstantOperand)) and self.is_cmp():
             self.left, self.right = self.right, self.left
+            self.left_type, self.right_type = self.right_type, self.left_type
             self.op = revert_cmp_op(self.op)
         code = []
         if self.dimentions is None:
             reg = scalar_variables[self.value]
             if reg == "spilled":
                 reg = "Место в памяти для " + self.value
-            left_reg = self.left.get_low_ir(scalar_variables)
-            right_reg = self.right.get_low_ir(scalar_variables)
-            dw = ""
-            if self.is_cmp() and left_reg not in reg and isinstance(self.right, (IntConstantOperand, FloatConstantOperand)):
-                dw = " dword "
-
             if self.type == "float":
+                if self.op in ["+", "*"] and isinstance(self.left, (FloatConstantOperand, IntConstantOperand)):
+                    self.left, self.right = self.right, self.left
+                    self.left_type, self.right_type = self.right_type, self.left_type
+                if isinstance(self.left, (IntConstantOperand, FloatConstantOperand)):
+                    left_reg = float_to_ieee754(self.left.value)
+                else:
+                    left_reg = self.left.get_low_ir(scalar_variables)
+                if isinstance(self.right, (IntConstantOperand, FloatConstantOperand)):
+                    right_reg = float_to_ieee754(self.right.value)
+                else:
+                    right_reg = self.right.get_low_ir(scalar_variables)
                 if self.op == "+":
-                    code.append(MoveSS("xmm0", left_reg))
-                    code.append(MoveSS("xmm1", right_reg))
+                    if not left_reg in xmm_regs:
+                        if left_reg in regs or ((left_reg[0] == "[" and left_reg[-1] == "]") and self.left_type == "int"):
+                            code.append(Cvtsi2ss("xmm0", left_reg))
+                        else:
+                            code.append(Move("dword [esp]", left_reg))
+                            code.append(MoveSS("xmm0", "[esp]"))
+                            code.append(Add("esp", "4"))
+                    else:
+                        code.append(MoveSS("xmm0", left_reg))
+                    if not right_reg in xmm_regs:
+                        if right_reg in regs or (
+                                (right_reg[0] == "[" and right_reg[-1] == "]") and self.right_type == "int"):
+                            code.append(Cvtsi2ss("xmm1", right_reg))
+                        else:
+                            code.append(Move("dword [esp]", right_reg))
+                            code.append(MoveSS("xmm1", "[esp]"))
+                            code.append(Add("esp", "4"))
+                    else:
+                        code.append(MoveSS("xmm1", right_reg))
                     code.append(Addss("xmm0", "xmm1"))
                     code.append(MoveSS(reg, "xmm0"))
                 if self.op == "-":
-                    code.append(MoveSS("xmm0", left_reg))
-                    code.append(MoveSS("xmm1", right_reg))
+                    if not left_reg in xmm_regs:
+                        if left_reg in regs or (
+                                (left_reg[0] == "[" and left_reg[-1] == "]") and self.left_type == "int"):
+                            code.append(Cvtsi2ss("xmm0", left_reg))
+                        else:
+                            code.append(Move("dword [esp]", left_reg))
+                            code.append(MoveSS("xmm0", "[esp]"))
+                            code.append(Add("esp", "4"))
+                    else:
+                        code.append(MoveSS("xmm0", left_reg))
+                    if not right_reg in xmm_regs:
+                        if right_reg in regs or (
+                                (right_reg[0] == "[" and right_reg[-1] == "]") and self.right_type == "int"):
+                            code.append(Cvtsi2ss("xmm1", right_reg))
+                        else:
+                            code.append(Move("dword [esp]", right_reg))
+                            code.append(MoveSS("xmm1", "[esp]"))
+                            code.append(Add("esp", "4"))
+                    else:
+                        code.append(MoveSS("xmm1", right_reg))
                     code.append(Subss("xmm0", "xmm1"))
                     code.append(MoveSS(reg, "xmm0"))
                 if self.op == "*":
-                    code.append(MoveSS("xmm0", left_reg))
-                    code.append(MoveSS("xmm1", right_reg))
+                    if not left_reg in xmm_regs:
+                        if left_reg in regs or (
+                                (left_reg[0] == "[" and left_reg[-1] == "]") and self.left_type == "int"):
+                            code.append(Cvtsi2ss("xmm0", left_reg))
+                        else:
+                            code.append(Move("dword [esp]", left_reg))
+                            code.append(MoveSS("xmm0", "[esp]"))
+                            code.append(Add("esp", "4"))
+                    else:
+                        code.append(MoveSS("xmm0", left_reg))
+                    if not right_reg in xmm_regs:
+                        if right_reg in regs or (
+                                (right_reg[0] == "[" and right_reg[-1] == "]") and self.right_type == "int"):
+                            code.append(Cvtsi2ss("xmm1", right_reg))
+                        else:
+                            code.append(Move("dword [esp]", right_reg))
+                            code.append(MoveSS("xmm1", "[esp]"))
+                            code.append(Add("esp", "4"))
+                    else:
+                        code.append(MoveSS("xmm1", right_reg))
                     code.append(Mulss("xmm0", "xmm1"))
                     code.append(MoveSS(reg, "xmm0"))
                 if self.op == "/":
-                    code.append(MoveSS("xmm0", left_reg))
-                    code.append(MoveSS("xmm1", right_reg))
+                    if not left_reg in xmm_regs:
+                        if left_reg in regs or (
+                                (left_reg[0] == "[" and left_reg[-1] == "]") and self.left_type == "int"):
+                            code.append(Cvtsi2ss("xmm0", left_reg))
+                        else:
+                            code.append(Move("dword [esp]", left_reg))
+                            code.append(MoveSS("xmm0", "[esp]"))
+                            code.append(Add("esp", "4"))
+                    else:
+                        code.append(MoveSS("xmm0", left_reg))
+                    if not right_reg in xmm_regs:
+                        if right_reg in regs or (
+                                (right_reg[0] == "[" and right_reg[-1] == "]") and self.right_type == "int"):
+                            code.append(Cvtsi2ss("xmm1", right_reg))
+                        else:
+                            code.append(Move("dword [esp]", right_reg))
+                            code.append(MoveSS("xmm1", "[esp]"))
+                            code.append(Add("esp", "4"))
+                    else:
+                        code.append(MoveSS("xmm1", right_reg))
                     code.append(Divss("xmm0", "xmm1"))
                     code.append(MoveSS(reg, "xmm0"))
             else:
+                left_reg = self.left.get_low_ir(scalar_variables)
+                right_reg = self.right.get_low_ir(scalar_variables)
+                dw = ""
+                if self.is_cmp() and left_reg not in reg and isinstance(self.right,
+                                                                        (IntConstantOperand, FloatConstantOperand)):
+                    dw = " dword "
                 if self.op == "and":
                     code.append(Move("eax", left_reg))
                     code.append(And("eax", right_reg))
@@ -873,7 +967,12 @@ class ReturnInstruction(IR):
         else:
             argument_reg = self.value.get_low_ir(scalar_variables)
             if type == "float":
-                code.append(Fld("dword " + argument_reg))
+                if argument_reg in xmm_regs:
+                    code.append(MoveSS("dword [esp]", argument_reg))
+                    code.append(Fld("dword [esp]"))
+                    code.append(Add("esp", "4"))
+                else:
+                    code.append(Fld("dword " + argument_reg))
             else:
                 code.append(Move("eax", argument_reg))
             code.append(Pop("esi"))

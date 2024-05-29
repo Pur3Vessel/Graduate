@@ -523,13 +523,14 @@ class Context:
 
     def build_lives_dfs_last(self, var, labels, vertex, pred, assign):
         breakable = False
+        #print(var)
         for instruction in vertex.block:
             if instruction == assign:
                 breakable = True
                 break
             label = self.graph.instructions_to_labels[instruction]
             labels.append(label)
-            if labels.count(label) > 5:
+            if labels.count(label) > 3:
                 breakable = True
                 break
             if isinstance(instruction, PhiAssign):

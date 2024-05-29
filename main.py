@@ -19,7 +19,7 @@ def opt_pass(tree, j):
         # Выявление достигающих определений
         builder.contexts[func.name].graph.solve_rd()
         # Loop invariant_code_motion
-        changed = builder.contexts[func.name].loop_invariant_code_motion(is_preheader) or changed
+        #changed = builder.contexts[func.name].loop_invariant_code_motion(is_preheader) or changed
         # Построение дерева доминаторов
         builder.contexts[func.name].graph.dfs()
         builder.contexts[func.name].graph.build_dominators_tree()

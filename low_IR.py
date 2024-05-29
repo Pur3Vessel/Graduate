@@ -1,7 +1,7 @@
 from abc import ABC
 
 regs = ["eax", "ebx", "ecx", "edx", "esi", "edi"]
-xmm_regs = {"xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7"}
+xmm_regs = {"xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7", "xmm0", "xmm1"}
 
 color_to_regs = {
     1: "ebx",

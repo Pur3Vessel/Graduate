@@ -55,6 +55,7 @@ class CodeBuilder:
                 else:
                     code += ", " + context_builder.func_name
         code += "\n"
+        code += "extern print_register_value, print_register_value_float\n"
         for context_builder in self.context_builders.values():
             if not context_builder.is_entry:
                 code += str(context_builder)
@@ -183,13 +184,13 @@ class ContextBuilder:
         for param in array_params:
             self.array_adresses[param[0]] = (param[1], True, param[2])
 
-        if self.i == 1:
-            for var, label in self.scalar_variables.items():
-                print(var, label)
-            print("=========")
-            for var, label in self.array_adresses.items():
-                print(var, label)
-            print("-------------")
+        #if self.i == 1:
+        #    for var, label in self.scalar_variables.items():
+        #        print(var, label)
+        #    print("=========")
+        #    for var, label in self.array_adresses.items():
+        #        print(var, label)
+        #    print("-------------")
 
     def get_entry_info(self):
         if self.is_entry:
