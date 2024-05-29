@@ -15,6 +15,5 @@ float multiply() {
 
 
 int main() {
-    float answer = multiply();
     return 0;
 }

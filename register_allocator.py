@@ -85,6 +85,13 @@ class IFG:
             variables = context.get_float_variables()
         variables = list(map(lambda x: x.replace("$", "_"), variables))
         variables += added_vars
+        for var in variables:
+            found = False
+            for label, lives in context.labels_to_live.items():
+                if var in lives:
+                    found = True
+            if not found:
+                restrickted_vars.append(var)
         variables = [v for v in variables if v not in restrickted_vars]
         for var in variables:
             self.add_vertex(var)

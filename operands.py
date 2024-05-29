@@ -32,13 +32,12 @@ def generate_array_index_code(name, dimentions, scalar_variables, array_adresses
     else:
         n_regs = n_dims - 1
 
-
     last_dim_reg = dimentions_regs[-1]
     if n_dims == 1:
         last_dim_reg = ""
 
     for i in range(n_regs):
-        if dimentions_regs[i] in regs:
+        if dimentions_regs[i] in regs and dimentions_regs[i] not in used_regs:
             index_regs.append(dimentions_regs[i])
         else:
             index_regs.append("spilled")
@@ -59,7 +58,7 @@ def generate_array_index_code(name, dimentions, scalar_variables, array_adresses
         for i, reg in enumerate(index_regs):
             dim_reg = dimentions_regs[i]
             code.append(Move(reg, dim_reg))
-            for size in dimentions_sizes[i+1:]:
+            for size in dimentions_sizes[i + 1:]:
                 if type(size) != int:
                     size_reg = scalar_variables[size]
                 else:
@@ -73,7 +72,7 @@ def generate_array_index_code(name, dimentions, scalar_variables, array_adresses
         pop_intr.append(Pop(reg))
     if info[1]:
         pop_intr.append(Pop(r))
-
+    code.append(Shl(index_regs[0], "2"))
     src = "[" + addr + " + " + index_regs[0] + ']'
     return code, src, pop_intr
 

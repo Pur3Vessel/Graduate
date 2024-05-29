@@ -24,36 +24,40 @@ class CodeBuilder:
         code = ""
         for context_builder in self.context_builders.values():
             context_builder.generate_context()
-        scalar_variables, array_adresses = None, None
-        for context_builder in self.context_builders.values():
-            if context_builder.is_entry:
-                scalar_variables, array_adresses = context_builder.get_entry_info()
-                break
-        bss_vars = []
-        for var, label in scalar_variables.items():
-            if label not in regs and label not in xmm_regs:
-                bss_vars.append(var)
-        if len(bss_vars) != 0:
-            code += "section .bss\n"
-            for var in bss_vars:
-                code += "\t" + var + " resd 1\n"
-        decl_arrays = []
-        for arr in array_adresses.keys():
-            decl_arrays.append(arr)
-        if len(decl_arrays) != 0:
-            code += "section .data\n"
-            for arr in decl_arrays:
-                code += "\t" + arr + " dd " + ", ".join(
-                    list(map(lambda x: str(x), flatten(array_adresses[arr][3])))) + "\n"
+        #scalar_variables, array_adresses = None, None
+        #for context_builder in self.context_builders.values():
+        #    if context_builder.is_entry:
+        #        scalar_variables, array_adresses = context_builder.get_entry_info()
+        #        break
+        #bss_vars = []
+        #for var, label in scalar_variables.items():
+        #    if label not in regs and label not in xmm_regs:
+        #        bss_vars.append(var)
+        #if len(bss_vars) != 0:
+        #    code += "section .bss\n"
+        #    for var in bss_vars:
+        #        code += "\t" + var + " resd 1\n"
+        #decl_arrays = []
+        #for arr in array_adresses.keys():
+        #    decl_arrays.append(arr)
+        #if len(decl_arrays) != 0:
+        #    code += "section .data\n"
+        #    for arr in decl_arrays:
+        #        code += "\t" + arr + " dd " + ", ".join(
+        #            list(map(lambda x: str(x), flatten(array_adresses[arr][3])))) + "\n"
 
         code += "section .text\n"
-        code += "\tglobal _start"
-        for context_builder in self.context_builders.values():
+        code += "\tglobal "
+        for i, context_builder in enumerate(self.context_builders.values()):
             if not context_builder.is_entry:
-                code += ", " + context_builder.func_name
+                if i == 0:
+                    code += context_builder.func_name
+                else:
+                    code += ", " + context_builder.func_name
         code += "\n"
         for context_builder in self.context_builders.values():
-            code += str(context_builder)
+            if not context_builder.is_entry:
+                code += str(context_builder)
         with open(f"asm/program{self.i}.asm", 'w') as file:
             file.write(code)
 
@@ -146,6 +150,9 @@ class ContextBuilder:
                 sdvig += 4
             else:
                 array_args.append((arg.name, "[ebp + " + str(sdvig) + "]", arg.dimentions))
+                sdvig += 4
+                for _ in arg.dimentions:
+                    sdvig += 4
         return array_args
 
     def get_spilled_adresses(self):
@@ -176,13 +183,13 @@ class ContextBuilder:
         for param in array_params:
             self.array_adresses[param[0]] = (param[1], True, param[2])
 
-        #if self.i == 1:
-        #    for var, label in self.scalar_variables.items():
-        #        print(var, label)
-        #    print("=========")
-        #    for var, label in self.array_adresses.items():
-        #        print(var, label)
-        #    print("-------------")
+        if self.i == 1:
+            for var, label in self.scalar_variables.items():
+                print(var, label)
+            print("=========")
+            for var, label in self.array_adresses.items():
+                print(var, label)
+            print("-------------")
 
     def get_entry_info(self):
         if self.is_entry:
@@ -228,18 +235,26 @@ class ContextBuilder:
 
     def generate_block(self, v):
         self.code.append(Label(v.label))
+        phi_assigns = []
+        is_br = False
         for instruction in v.block:
             if isinstance(instruction, IsTrueInstruction):
-                self.code += instruction.get_low_ir_branch(self.scalar_variables, v.output_vertexes)
+                self.code += instruction.get_low_ir_branch(self.scalar_variables, v.output_vertexes, phi_assigns)
+                phi_assigns = []
             elif isinstance(instruction, ReturnInstruction):
                 self.code += instruction.get_low_ir_return(self.scalar_variables, self.is_entry, self.func_type)
             elif isinstance(instruction, AtomicAssign):
-                self.code += instruction.get_low_ir_arr(self.scalar_variables, self.array_adresses)
+                if instruction.is_phi:
+                    phi_assigns += instruction.get_low_ir_arr(self.scalar_variables, self.array_adresses)
+                else:
+                    self.code += instruction.get_low_ir_arr(self.scalar_variables, self.array_adresses)
             elif isinstance(instruction, ArrayInitInstruction):
                 if not self.is_entry:
                     self.code += instruction.get_low_ir_arr_decl(self.array_adresses)
             else:
                 self.code += instruction.get_low_ir(self.scalar_variables)
+        if not is_br:
+            self.code += phi_assigns
         if len(v.output_vertexes) == 1:
             self.code.append(Jump(v.output_vertexes[0].label))
 

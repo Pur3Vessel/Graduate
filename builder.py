@@ -83,3 +83,10 @@ class Builder:
             for context in self.contexts.values():
                 context.graph.print_graph_rd(file)
             file.write("}\n")
+
+    def set_labels(self):
+        n = 0
+        for context in self.contexts.values():
+            for v in context.graph.vertexes:
+                v.label = "block" + str(n)
+                n += 1

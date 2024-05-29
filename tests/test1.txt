@@ -1,18 +1,15 @@
 int tile(int u[n][m]) {
     for (k = 0 to n) {
-        for (i = 0 to n) {
-            for (j = 0 to m) {
+        for (i = 2 to n - 1) {
+            for (j = 1 to m) {
                 u[i, j] = u[i, j - 1] + u[i + 1, j - 1] + u[i - 2, j - 1];
             }
         }
     }
-    u[0, 0] = n + m;
-    return u[n - 1, m - 1];
+    return u[2, 3];
 }
 
 
 int main() {
-   int u[5, 5]= {{1, 2, 3, 4, 5}, {1, 2, 3, 4, 5}, {1, 2, 3, 4, 5}, {1, 2, 3, 4, 5}, {1, 2, 3, 4, 5}};
-   int a = tile(u);
-   return a;
+   return 0;
 }

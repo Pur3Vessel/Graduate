@@ -1,10 +1,14 @@
-
-float main() {
+float calculate() {
     float b = 5.3;
     int c = 2;
-    for (i = 0 to 10) {
+    for (i = 0 to 5) {
         float a = 3.2;
         b = b * c * i + a *  a;
     }
     return b;
+}
+
+
+int main() {
+    return 0;
 }

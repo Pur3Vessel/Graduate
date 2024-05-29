@@ -62,8 +62,7 @@ if __name__ == "__main__":
             j += 1
             changed = opt_pass(tree, j)
         print(f"Тест {i} завершился за {j} пассов")
-        for func in tree.funcDefs:
-            builder.contexts[func.name].graph.set_labels()
+        builder.set_labels()
         builder.print_graph(out_file)
         code_builder = CodeBuilder(tree.funcDefs, builder, i)
         code_builder.allocate_registers()

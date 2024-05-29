@@ -1,5 +1,4 @@
-
-int main() {
+int aboba() {
     int a[5] = {1, 2, 3, 4, 5};
     int b[5] = {1, 2, 3, 4, 5};
     int c[5] = {1, 2, 3, 4, 5};
@@ -9,4 +8,9 @@ int main() {
         c[i] = a[i] + 1;
     }
     return c[4];
+}
+
+
+int main() {
+    return 0;
 }

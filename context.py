@@ -612,6 +612,8 @@ class Context:
                 if isinstance(instruction, PhiAssign):
                     assign1 = AtomicAssign(instruction.type, instruction.value, instruction.arguments[0], None)
                     assign2 = AtomicAssign(instruction.type, instruction.value, instruction.arguments[1], None)
+                    assign1.is_phi = True
+                    assign2.is_phi = True
                     v1 = v.input_vertexes[0]
                     v2 = v.input_vertexes[1]
                     if len(v1.block) != 0 and isinstance(v1.block[-1], IsTrueInstruction):

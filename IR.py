@@ -1,5 +1,28 @@
 from operands import *
 import functools
+import struct
+
+
+def revert_cmp_op(op):
+    if op == ">":
+        return "<"
+    if op == "<":
+        return ">"
+    if op == "<=":
+        return ">="
+    if op == ">=":
+        return "<="
+    return op
+
+
+def is_cmp_op(op):
+    return op == "==" or op == "!=" or op == ">" or op == "<" or op == ">=" or op == "<="
+
+
+def float_to_ieee_754_hex(num):
+    ieee_754_bytes = struct.pack('>f', num)
+    ieee_754_hex = '0x' + ''.join(f'{byte:02x}' for byte in ieee_754_bytes)
+    return ieee_754_hex
 
 
 def nested_list_to_str(nested_list):
@@ -149,16 +172,17 @@ class ArrayInitInstruction(IR):
                     code.append(MoveSS("[" + adress + " + " + str(sdvig) + "]", str(0)))
                 else:
                     code.append(Move("[" + adress + " + " + str(sdvig) + "]", str(0)))
-            sdvig += 4
+                sdvig += 4
         else:
             elems = flatten(self.assign)
             adress = array_adresses[self.name][0].replace("[", "").replace("]", "")
             for i in range(n_elems):
                 if self.type == "float":
-                    code.append(MoveSS("[" + adress + " + " + str(sdvig) + "]", str(elems[i])))
+                    code.append(
+                        MoveSS("[" + adress + " + " + str(sdvig) + "]", "dword " + float_to_ieee_754_hex(elems[i])))
                 else:
-                    code.append(Move("[" + adress + " + " + str(sdvig) + "]", str(elems[i])))
-            sdvig += 4
+                    code.append(Move("[" + adress + " + " + str(sdvig) + "]", "dword " + str(elems[i])))
+                sdvig += 4
         return code
 
 
@@ -168,6 +192,7 @@ class AtomicAssign(IR):
         self.value = value
         self.argument = argument
         self.dimentions = dimentions
+        self.is_phi = False
 
     def __str__(self):
         d = ""
@@ -640,6 +665,9 @@ class BinaryAssign(IR):
             self.dimentions = new_dims
 
     def get_low_ir(self, scalar_variables):
+        if isinstance(self.left, (IntConstantOperand, FloatConstantOperand)) and self.is_cmp():
+            self.left, self.right = self.right, self.left
+            self.op = revert_cmp_op(self.op)
         code = []
         if self.dimentions is None:
             reg = scalar_variables[self.value]
@@ -647,6 +675,10 @@ class BinaryAssign(IR):
                 reg = "Место в памяти для " + self.value
             left_reg = self.left.get_low_ir(scalar_variables)
             right_reg = self.right.get_low_ir(scalar_variables)
+            dw = ""
+            if self.is_cmp() and left_reg not in reg and isinstance(self.right, (IntConstantOperand, FloatConstantOperand)):
+                dw = " dword "
+
             if self.type == "float":
                 if self.op == "+":
                     code.append(MoveSS("xmm0", left_reg))
@@ -694,32 +726,32 @@ class BinaryAssign(IR):
                 if self.op == "mod":
                     code.add("Заглушка на mod")
                 if self.op == ">":
-                    code.append(Cmp(left_reg, right_reg))
+                    code.append(Cmp(left_reg, dw + right_reg))
                     code.append(Setg("al"))
                     code.append(MoveZX("eax", "al"))
                     code.append(Move(reg, "eax"))
                 if self.op == ">=":
-                    code.append(Cmp(left_reg, right_reg))
+                    code.append(Cmp(left_reg, dw + right_reg))
                     code.append(Setge("al"))
                     code.append(MoveZX("eax", "al"))
                     code.append(Move(reg, "eax"))
                 if self.op == "<=":
-                    code.append(Cmp(left_reg, right_reg))
+                    code.append(Cmp(left_reg, dw + right_reg))
                     code.append(Setle("al"))
                     code.append(MoveZX("eax", "al"))
                     code.append(Move(reg, "eax"))
                 if self.op == "==":
-                    code.append(Cmp(left_reg, right_reg))
+                    code.append(Cmp(left_reg, dw + right_reg))
                     code.append(Sete("al"))
                     code.append(MoveZX("eax", "al"))
                     code.append(Move(reg, "eax"))
                 if self.op == "<":
-                    code.append(Cmp(left_reg, right_reg))
+                    code.append(Cmp(left_reg, dw + right_reg))
                     code.append(Setl("al"))
                     code.append(MoveZX("eax", "al"))
                     code.append(Move(reg, "eax"))
                 if self.op == "!=":
-                    code.append(Cmp(left_reg, right_reg))
+                    code.append(Cmp(left_reg, dw + right_reg))
                     code.append(Setne("al"))
                     code.append(MoveZX("eax", "al"))
                     code.append(Move(reg, "eax"))
@@ -895,10 +927,11 @@ class IsTrueInstruction(IR):
     def replace_operand(self, name, new_name):
         self.value = IdOperand(new_name)
 
-    def get_low_ir_branch(self, scalar_variables, output_vertexes):
+    def get_low_ir_branch(self, scalar_variables, output_vertexes, phi_assigns):
         code = []
         argument_reg = self.value.get_low_ir(scalar_variables)
         code.append(Cmp(argument_reg, "1"))
+        code += phi_assigns
         code.append(JumpEqual(output_vertexes[0].label))
         code.append(Jump(output_vertexes[1].label))
         return code
