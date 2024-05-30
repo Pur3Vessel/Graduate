@@ -75,8 +75,8 @@ class Vertex:
                     file.write("\t" + str(self.number) + "->" + str(elem.number) + "[label=\"N\"]" + "\n")
             else:
                 file.write("\t" + str(self.number) + "->" + str(elem.number) + "\n")
-        # for elem in self.children:
-        #    file.write("\t" + str(self.number) + "->" + str(elem.number) + " [color = green]")
+        for elem in self.children:
+            file.write("\t" + str(self.number) + "->" + str(elem.number) + " [color = green]")
 
     def to_graph_rd(self, file, graph):
         file.write("\t" + str(self.number) + "[label=\"\n")
@@ -211,7 +211,8 @@ class Graph:
                 self.instructions_to_labels[instruction] = point
                 if not isinstance(instruction, PhiAssign):
                     point += 1
-                if isinstance(instruction, PhiAssign) and (i == len(current.block) - 1 or not isinstance(current.block[i+1], PhiAssign)):
+                if isinstance(instruction, PhiAssign) and (
+                        i == len(current.block) - 1 or not isinstance(current.block[i + 1], PhiAssign)):
                     point += 1
             for next_v in current.output_vertexes:
                 if not next_v.checked:
@@ -462,7 +463,6 @@ class Graph:
                     blocks.append(v)
                     break
         return blocks
-
 
     def is_dom(self, v, v1):
         visited = set()

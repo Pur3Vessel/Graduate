@@ -1,0 +1,15 @@
+int tile(int u[n][m]) {
+    for (k = 0 to n) {
+        for (i = 2 to n - 1) {
+            for (j = 1 to m) {
+                u[i, j] = u[i, j - 1] + u[i + 1, j - 1] + u[i - 2, j - 1];
+            }
+        }
+    }
+    return u[2, 3];
+}
+
+
+int main() {
+   return 0;
+}

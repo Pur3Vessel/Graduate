@@ -1,0 +1,31 @@
+float calc2(float a, float b[c], int d) {
+    float reverse = -a;
+    if ((a > d) and (not (d <= 0))) {
+        b[c - 1] = reverse;
+    }
+    int g = -d;
+    float g1 = 1 / g;
+    g1 = g1 - b[c - 1];
+    return g1;
+}
+
+float calc1(float a, int d) {
+    float c = a / d;
+    int d1 = d div 5;
+    float b[10] = {1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 5.5, 4.4, 3.3, 2.2};
+    float f = calc2(a, b, d1);
+    int d2 = d mod 5;
+    d1 = (d2 * 5) + (3 * d);
+    if (c > d1) {
+        return f;
+    } else {
+        b[7] = f / 5.7;
+        b[7] = b[7] * d2;
+        return b[7];
+    }
+}
+
+
+int main() {
+    return 0;
+}

@@ -77,9 +77,9 @@ class ContextBuilder:
 
     def allocate_registers(self):
         self.context.build_lives()
-        #if self.i == 1:
-        #    for label, lives in self.context.labels_to_live.items():
-        #        print(label, lives)
+        if self.i == 3:
+            for label, lives in self.context.labels_to_live.items():
+                print(label, lives)
         k_reg = len(color_to_regs)
         k_xmm_reg = len(color_to_xmm_regs)
         int_ifg = IFG(k_reg)
@@ -184,13 +184,13 @@ class ContextBuilder:
         for param in array_params:
             self.array_adresses[param[0]] = (param[1], True, param[2])
 
-        #if self.i == 1:
-        #    for var, label in self.scalar_variables.items():
-        #        print(var, label)
-        #    print("=========")
-        #    for var, label in self.array_adresses.items():
-        #        print(var, label)
-        #    print("-------------")
+        if self.i == 3:
+            for var, label in self.scalar_variables.items():
+                print(var, label)
+            print("=========")
+            for var, label in self.array_adresses.items():
+                print(var, label)
+            print("-------------")
 
     def get_entry_info(self):
         if self.is_entry:

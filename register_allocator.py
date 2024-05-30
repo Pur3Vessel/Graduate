@@ -101,8 +101,6 @@ class IFG:
                     continue
                 for label, lives in context.labels_to_live.items():
                     if var in lives and other_var in lives:
-                        #if var == "i_2":
-                        #    print(var, other_var, context.not_phi_once(label, var, other_var))
                         if context.not_phi_once(label, var, other_var):
                             v1 = self.get_vertex(var)
                             v2 = self.get_vertex(other_var)

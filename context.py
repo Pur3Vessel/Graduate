@@ -89,6 +89,14 @@ class Context:
         return changed
 
     def lycm_cycle(self, cycle, is_preheader):
+        cycleN = []
+        for v in cycle:
+            if v.label is None:
+                cycleN.append(v)
+            else:
+                if v.label not in list(map(lambda x: x.label,cycleN)):
+                    cycleN.append(v)
+        cycle = cycleN
         invar_order = self.mark_invar(cycle)
         # for inst in invar_order:
         #    print(inst)
@@ -192,11 +200,11 @@ class Context:
         exits = self.graph.get_exits_for_cycle(cycle)
         # for exit in exits:
         #    print(exit.dfs_number)
-        subgraph = Graph()
-        subgraph.vertexes = [preheader] + cycle + exits
-        subgraph.build_dominators_tree()
-        # print(instruction, self.dom_uses(instruction, cycle), self.dom_exits(instruction, subgraph, exits))
-        is_pred = self.dom_uses(instruction, cycle) and self.dom_exits(instruction, subgraph, exits)
+        #subgraph = Graph()
+        #subgraph.vertexes = [preheader] + cycle + exits
+
+        #subgraph.build_dominators_tree()
+        is_pred = self.dom_uses(instruction, cycle) and self.dom_exits(instruction, self.graph, exits)
         self.graph.clean_dominators()
         return is_pred
 
@@ -535,7 +543,7 @@ class Context:
                 break
             label = self.graph.instructions_to_labels[instruction]
             labels.append(label)
-            if labels.count(label) > 3:
+            if labels.count(label) > 4:
                 breakable = True
                 break
             if isinstance(instruction, PhiAssign):
