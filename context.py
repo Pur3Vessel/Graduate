@@ -148,7 +148,8 @@ class Context:
         for instruction in block.block:
             if is_assign(instruction) and not inst_invar[instruction]:
                 is_inv = True
-                if isinstance(instruction, (AtomicAssign, UnaryAssign, BinaryAssign)) and instruction.dimentions is not None:
+                if isinstance(instruction,
+                              (AtomicAssign, UnaryAssign, BinaryAssign)) and instruction.dimentions is not None:
                     is_inv = False
                 if isinstance(instruction, BinaryAssign) and instruction.is_cmp():
                     is_inv = False
@@ -465,7 +466,8 @@ class Context:
             for instruction in v.block:
                 if isinstance(instruction,
                               (AtomicAssign, BinaryAssign,
-                               UnaryAssign)) and instruction.dimentions is None and (instruction.type == "int" or instruction.type == "bool"):
+                               UnaryAssign)) and instruction.dimentions is None and (
+                        instruction.type == "int" or instruction.type == "bool"):
                     variables.append(instruction.value)
                 if isinstance(instruction, PhiAssign) and (instruction.type == "int" or instruction.type == "bool"):
                     variables.append(instruction.value)
@@ -523,7 +525,7 @@ class Context:
 
     def build_lives_dfs_last(self, var, labels, vertex, pred, assign):
         breakable = False
-        #print(var)
+        # print(var)
         for instruction in vertex.block:
             if instruction == assign:
                 breakable = True
@@ -636,3 +638,76 @@ class Context:
                     arrays.append((instruction.name, instruction.dimentions, instruction.assign))
         return arrays
 
+    def is_perfect_nest(self, nest):
+        nest = sorted(nest, key=lambda x: len(nest))
+        pairs = []
+        for cycle in nest:
+            pairs += [cycle[0], cycle[1]]
+        biggest = nest[-1]
+        for block in biggest:
+            if block not in pairs and block not in nest[0]:
+                return False
+        return True
+
+    def get_full_exp(self, exp, block):
+        if isinstance(exp, AtomicAssign):
+            if "$" in exp.argument:
+                for instr in block:
+                    if instr.value == exp.argument:
+                        return self.get_full_exp(instr, block)
+            else:
+                return str(exp.argument)
+        if isinstance(exp, UnaryAssign):
+            if "$" in exp.arg:
+                for instr in block:
+                    if instr.value == exp.arg:
+                        return exp.op + self.get_full_exp(instr, block)
+            else:
+                return exp.op + str(exp.arg)
+        if isinstance(exp, BinaryAssign):
+            if "$" in exp.left:
+                for instr in block:
+                    if instr.value == exp.left:
+                        left = self.get_full_exp(instr, block)
+            else:
+                left = str(exp.left)
+            if "$" in exp.right:
+                for instr in block:
+                    if instr.value == exp.right:
+                        right = self.get_full_exp(instr, block)
+            else:
+                left = str(exp.left)
+
+
+    def get_cycle_index_info(self, cycle):
+        latch = cycle[0]
+        header = cycle[1]
+        if len(header.input_vertexes) != 2:
+            return None
+        enter = None
+        for v in header.input_vertexes:
+            if v != latch:
+                enter = v
+        index_increment = latch.block[0]
+
+        if isinstance(index_increment, BinaryAssign) and index_increment.value == index_increment.left and isinstance(index_increment.right, IntConstantOperand) and index_increment.right.value == 1:
+            index_name = index_increment.value
+        else:
+            return 0
+        start = None
+        for instruction in enter.block[::-1]:
+            if isinstance(instruction)
+
+
+
+    def tiling_nest(self, nest):
+        print(self.is_perfect_nest(nest))
+        for cycle in nest:
+            info = self.get_cycle_index_info(cycle)
+            print(info)
+
+
+    def tiling(self):
+        loop_nests = self.graph.find_loop_nests()
+        for nest in loop_nests:
+            self.tiling_nest(nest)

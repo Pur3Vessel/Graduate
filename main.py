@@ -40,11 +40,12 @@ def opt_pass(tree, j):
     if changed:
         for func in tree.funcDefs:
             builder.contexts[func.name].remove_ssa()
+
     return changed
 
 
 if __name__ == "__main__":
-    n_tests = 5
+    n_tests = 6
     for i in range(1, n_tests + 1):
         builder.contexts = {}
         test_file = f"tests/test{i}.txt"
@@ -61,9 +62,22 @@ if __name__ == "__main__":
         while changed:
             j += 1
             changed = opt_pass(tree, j)
+        for func in tree.funcDefs:
+            builder.contexts[func.name].remove_ssa()
+            builder.contexts[func.name].graph.get_natural_cycles()
+            builder.contexts[func.name].tiling()
+
         print(f"Тест {i} завершился за {j} пассов")
         builder.set_labels()
         builder.print_graph(out_file)
+        for func in tree.funcDefs:
+            builder.contexts[func.name].graph.dfs()
+            builder.contexts[func.name].graph.build_dominators_tree()
+            builder.contexts[func.name].graph.make_DF()
+            builder.contexts[func.name].place_phi()
+            builder.contexts[func.name].change_numeration()
+            builder.contexts[func.name].dead_code_elimination()
+        builder.print_graph(out_file + "_")
         code_builder = CodeBuilder(tree.funcDefs, builder, i)
         code_builder.allocate_registers()
         code_builder.generate_code()

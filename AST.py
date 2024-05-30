@@ -1002,6 +1002,9 @@ class FuncDef:
     def generate(self):
         builder.create_block_without()
         arguments = [FuncArgOperand(str(arg.type), arg.name, arg.dimentions) for arg in self.args]
+        for arg in arguments:
+            if len(arg.dimentions) == 0:
+                arg.dimentions = None
         def_IR = FuncDefInstruction(str(self.return_type), self.name, arguments)
         builder.add_expression(def_IR)
         builder.create_block()

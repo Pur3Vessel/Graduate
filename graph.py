@@ -393,6 +393,8 @@ class Graph:
         self.cycles.append(cycle)
 
     def get_natural_cycles(self):
+        self.cycles = []
+        self.cycles_pairs = []
         for v in self.vertexes:
             v.color = Color.WHITE
         self.cycles_first_dfs(self.vertexes[0])
@@ -578,4 +580,26 @@ class Graph:
                 v.output_vertexes.pop()
                 del v.block[-1]
 
-
+    def find_loop_nests(self):
+        full_nests = []
+        for i, cycle in enumerate(self.cycles):
+            nest = [cycle]
+            for j, other_cycle in enumerate(self.cycles):
+                if j == i:
+                    continue
+                if set(other_cycle).issubset(set(cycle)):
+                    nest.append(other_cycle)
+            full_nests.append(nest)
+        nests = []
+        for i, nest in enumerate(full_nests):
+            is_include = True
+            for j, other_nest in enumerate(full_nests):
+                if i == j:
+                    continue
+                if len(other_nest) > len(nest):
+                    if nest[0] in other_nest:
+                        is_include = False
+                        break
+            if is_include:
+                nests.append(nest)
+        return nests

@@ -233,6 +233,7 @@ class ContextBuilder:
             for next_v in current.output_vertexes:
                 if not next_v.checked:
                     stack.append(next_v)
+        self.fix_reduntancy()
 
     def generate_block(self, v):
         self.code.append(Label(v.label))
@@ -258,6 +259,13 @@ class ContextBuilder:
             self.code += phi_assigns
         if len(v.output_vertexes) == 1:
             self.code.append(Jump(v.output_vertexes[0].label))
+
+    def fix_reduntancy(self):
+        new_code = []
+        for c in self.code:
+            if not (isinstance(c, (Move, MoveSS)) and c.arg1 == c.arg2):
+                new_code.append(c)
+        self.code = new_code
 
     def __str__(self):
         s = "_start:" if self.is_entry else self.func_name + ":"

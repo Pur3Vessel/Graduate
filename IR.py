@@ -321,6 +321,7 @@ class AtomicAssign(IR):
                     else:
                         argument_reg = self.argument.get_low_ir(scalar_variables)
                     if argument_reg not in xmm_regs:
+                        code.append(Sub("esp", "4"))
                         code.append(Move("dword [esp]", argument_reg))
                         code.append(MoveSS(reg, "[esp]"))
                         code.append(Add("esp", "4"))
@@ -702,6 +703,7 @@ class BinaryAssign(IR):
                         if left_reg in regs or ((left_reg[0] == "[" and left_reg[-1] == "]") and self.left_type == "int"):
                             code.append(Cvtsi2ss("xmm0", left_reg))
                         else:
+                            code.append(Sub("esp", "4"))
                             code.append(Move("dword [esp]", left_reg))
                             code.append(MoveSS("xmm0", "[esp]"))
                             code.append(Add("esp", "4"))
@@ -712,6 +714,7 @@ class BinaryAssign(IR):
                                 (right_reg[0] == "[" and right_reg[-1] == "]") and self.right_type == "int"):
                             code.append(Cvtsi2ss("xmm1", right_reg))
                         else:
+                            code.append(Sub("esp", "4"))
                             code.append(Move("dword [esp]", right_reg))
                             code.append(MoveSS("xmm1", "[esp]"))
                             code.append(Add("esp", "4"))
@@ -725,6 +728,7 @@ class BinaryAssign(IR):
                                 (left_reg[0] == "[" and left_reg[-1] == "]") and self.left_type == "int"):
                             code.append(Cvtsi2ss("xmm0", left_reg))
                         else:
+                            code.append(Sub("esp", "4"))
                             code.append(Move("dword [esp]", left_reg))
                             code.append(MoveSS("xmm0", "[esp]"))
                             code.append(Add("esp", "4"))
@@ -735,6 +739,7 @@ class BinaryAssign(IR):
                                 (right_reg[0] == "[" and right_reg[-1] == "]") and self.right_type == "int"):
                             code.append(Cvtsi2ss("xmm1", right_reg))
                         else:
+                            code.append(Sub("esp", "4"))
                             code.append(Move("dword [esp]", right_reg))
                             code.append(MoveSS("xmm1", "[esp]"))
                             code.append(Add("esp", "4"))
@@ -748,6 +753,7 @@ class BinaryAssign(IR):
                                 (left_reg[0] == "[" and left_reg[-1] == "]") and self.left_type == "int"):
                             code.append(Cvtsi2ss("xmm0", left_reg))
                         else:
+                            code.append(Sub("esp", "4"))
                             code.append(Move("dword [esp]", left_reg))
                             code.append(MoveSS("xmm0", "[esp]"))
                             code.append(Add("esp", "4"))
@@ -758,6 +764,7 @@ class BinaryAssign(IR):
                                 (right_reg[0] == "[" and right_reg[-1] == "]") and self.right_type == "int"):
                             code.append(Cvtsi2ss("xmm1", right_reg))
                         else:
+                            code.append(Sub("esp", "4"))
                             code.append(Move("dword [esp]", right_reg))
                             code.append(MoveSS("xmm1", "[esp]"))
                             code.append(Add("esp", "4"))
@@ -771,6 +778,7 @@ class BinaryAssign(IR):
                                 (left_reg[0] == "[" and left_reg[-1] == "]") and self.left_type == "int"):
                             code.append(Cvtsi2ss("xmm0", left_reg))
                         else:
+                            code.append(Sub("esp", "4"))
                             code.append(Move("dword [esp]", left_reg))
                             code.append(MoveSS("xmm0", "[esp]"))
                             code.append(Add("esp", "4"))
@@ -781,6 +789,7 @@ class BinaryAssign(IR):
                                 (right_reg[0] == "[" and right_reg[-1] == "]") and self.right_type == "int"):
                             code.append(Cvtsi2ss("xmm1", right_reg))
                         else:
+                            code.append(Sub("esp", "4"))
                             code.append(Move("dword [esp]", right_reg))
                             code.append(MoveSS("xmm1", "[esp]"))
                             code.append(Add("esp", "4"))
@@ -968,6 +977,7 @@ class ReturnInstruction(IR):
             argument_reg = self.value.get_low_ir(scalar_variables)
             if type == "float":
                 if argument_reg in xmm_regs:
+                    code.append(Sub("esp", "4"))
                     code.append(MoveSS("dword [esp]", argument_reg))
                     code.append(Fld("dword [esp]"))
                     code.append(Add("esp", "4"))
