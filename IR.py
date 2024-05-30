@@ -3,6 +3,12 @@ import functools
 import struct
 
 
+def get_reg(use_regs):
+    for reg in regs:
+        if reg != "eax" and reg != "edx" and reg not in use_regs:
+            return reg
+
+
 def revert_cmp_op(op):
     if op == ">":
         return "<"
@@ -13,6 +19,21 @@ def revert_cmp_op(op):
     if op == ">=":
         return "<="
     return op
+
+
+def get_set_cmp(op):
+    if op == "==":
+        return Sete("al")
+    if op == "!=":
+        return Setne("al")
+    if op == ">":
+        return Setg("al")
+    if op == "<":
+        return Setl("al")
+    if op == ">=":
+        return Setge("al")
+    if op == "<=":
+        return Setle("al")
 
 
 def is_cmp_op(op):
@@ -298,7 +319,7 @@ class AtomicAssign(IR):
             self.argument.replace_operand(name, new_name)
         else:
             if self.argument.value == name:
-                self.argument = IdOperand(name)
+                self.argument = IdOperand(new_name)
             if self.dimentions is not None:
                 new_dims = []
                 for d in self.dimentions:
@@ -476,7 +497,10 @@ class UnaryAssign(IR):
             argument_reg = self.arg.get_low_ir(scalar_variables)
             if self.type == "float":
                 code.append(MoveSS("xmm0", argument_reg))
-                code.append(MoveSS("xmm1", "0x80000000"))
+                code.append(Sub("esp", "4"))
+                code.append(Move("[esp]", "0x80000000"))
+                code.append(MoveSS("xmm1", "dword [esp]"))
+                code.append(Add("esp", "4"))
                 code.append(Xorps("xmm0", "xmm1"))
                 code.append(MoveSS(reg, "xmm0"))
             else:
@@ -700,7 +724,8 @@ class BinaryAssign(IR):
                     right_reg = self.right.get_low_ir(scalar_variables)
                 if self.op == "+":
                     if not left_reg in xmm_regs:
-                        if left_reg in regs or ((left_reg[0] == "[" and left_reg[-1] == "]") and self.left_type == "int"):
+                        if left_reg in regs or (
+                                (left_reg[0] == "[" and left_reg[-1] == "]") and self.left_type == "int"):
                             code.append(Cvtsi2ss("xmm0", left_reg))
                         else:
                             code.append(Sub("esp", "4"))
@@ -813,51 +838,87 @@ class BinaryAssign(IR):
                     code.append(Or("eax", right_reg))
                     code.append(Move(reg, "eax"))
                 if self.op == "+":
-                    code.append(Move("eax", left_reg))
-                    code.append(Add("eax", right_reg))
-                    code.append(Move(reg, "eax"))
+                    if right_reg == "1" and left_reg in regs:
+                        code.append(Inc(left_reg))
+                    else:
+                        code.append(Move("eax", left_reg))
+                        code.append(Add("eax", right_reg))
+                        code.append(Move(reg, "eax"))
                 if self.op == "-":
-                    code.append(Move("eax", left_reg))
-                    code.append(Sub("eax", right_reg))
-                    code.append(Move(reg, "eax"))
+                    if right_reg == "1" and left_reg in regs:
+                        code.append(Dec(left_reg))
+                    else:
+                        code.append(Move("eax", left_reg))
+                        code.append(Add("eax", right_reg))
+                        code.append(Move(reg, "eax"))
                 if self.op == "*":
                     code.append(Move("eax", left_reg))
                     code.append(Imul("eax", right_reg))
                     code.append(Move(reg, "eax"))
-                if self.op == "div":
-                    code.add("Заглушка на div")
-                if self.op == "mod":
-                    code.add("Заглушка на mod")
-                if self.op == ">":
-                    code.append(Cmp(left_reg, dw + right_reg))
-                    code.append(Setg("al"))
+                if self.op == "div" or self.op == "mod":
+                    if reg == "edx":
+                        pushable = False
+                        code.append(Move("eax", left_reg))
+                        if right_reg == "edx":
+                            right_reg = get_reg([reg, left_reg])
+                            code.append(Push(right_reg))
+                            pushable = True
+                        code.append(Xor("edx", "edx"))
+                        code.append(Idiv(right_reg))
+                        if self.op == "div":
+                            code.append(Move(reg, "eax"))
+                        else:
+                            code.append(Move(reg, "edx"))
+                        if pushable:
+                            code.append(Pop(right_reg))
+                    else:
+                        code.append(Push("edx"))
+                        pushable = False
+                        code.append(Move("eax", left_reg))
+                        if right_reg == "edx":
+                            right_reg = get_reg([reg, left_reg])
+                            code.append(Push("edx"))
+                            code.append(Push(right_reg))
+                            pushable = True
+                        code.append(Xor("edx", "edx"))
+                        code.append(Idiv(right_reg))
+                        if self.op == "div":
+                            code.append(Move(reg, "eax"))
+                        else:
+                            code.append(Move(reg, "edx"))
+                        if pushable:
+                            code.append(Pop(right_reg))
+                            code.append(Pop("edx"))
+                        code.append(Pop("edx"))
+                if self.is_cmp():
+                    if self.left_type == "int" and self.right_type == "int":
+                        code.append(Cmp(left_reg, dw + right_reg))
+                    else:
+                        if self.left_type == "int":
+                            if left_reg in regs or (left_reg[0] == "[" and left_reg[-1] == "]"):
+                                code.append(Cvtsi2ss("xmm0", left_reg))
+                            else:
+                                code.append(Sub("esp", "4"))
+                                code.append(Move("dword [esp]", left_reg))
+                                code.append(MoveSS("xmm0", "[esp]"))
+                                code.append(Add("esp", "4"))
+                        else:
+                            code.append(MoveSS("xmm0", left_reg))
+                        if self.right_type == "int":
+                            if right_reg in regs or (right_reg[0] == "[" and right_reg[-1] == "]"):
+                                code.append(Cvtsi2ss("xmm1", right_reg))
+                            else:
+                                code.append(Sub("esp", "4"))
+                                code.append(Move("dword [esp]", right_reg))
+                                code.append(MoveSS("xmm1", "[esp]"))
+                                code.append(Add("esp", "4"))
+                        else:
+                            code.append(MoveSS("xmm1", right_reg))
+                        code.append(Comiss("xmm0", "xmm1"))
+                    code.append(get_set_cmp(self.op))
                     code.append(MoveZX("eax", "al"))
                     code.append(Move(reg, "eax"))
-                if self.op == ">=":
-                    code.append(Cmp(left_reg, dw + right_reg))
-                    code.append(Setge("al"))
-                    code.append(MoveZX("eax", "al"))
-                    code.append(Move(reg, "eax"))
-                if self.op == "<=":
-                    code.append(Cmp(left_reg, dw + right_reg))
-                    code.append(Setle("al"))
-                    code.append(MoveZX("eax", "al"))
-                    code.append(Move(reg, "eax"))
-                if self.op == "==":
-                    code.append(Cmp(left_reg, dw + right_reg))
-                    code.append(Sete("al"))
-                    code.append(MoveZX("eax", "al"))
-                    code.append(Move(reg, "eax"))
-                if self.op == "<":
-                    code.append(Cmp(left_reg, dw + right_reg))
-                    code.append(Setl("al"))
-                    code.append(MoveZX("eax", "al"))
-                    code.append(Move(reg, "eax"))
-                if self.op == "!=":
-                    code.append(Cmp(left_reg, dw + right_reg))
-                    code.append(Setne("al"))
-                    code.append(MoveZX("eax", "al"))
-                    code.append(Move(reg, "eax"))
+
             return code
 
 
@@ -967,7 +1028,7 @@ class ReturnInstruction(IR):
     def replace_operand(self, name, new_name):
         self.value = IdOperand(new_name)
 
-    def get_low_ir_return(self, scalar_variables, is_entry, type):
+    def get_low_ir_return(self, scalar_variables, is_entry, type, used_xmm):
         code = []
         if is_entry:
             code.append(Move("eax", "0x01"))
@@ -985,6 +1046,9 @@ class ReturnInstruction(IR):
                     code.append(Fld("dword " + argument_reg))
             else:
                 code.append(Move("eax", argument_reg))
+            for xmm in used_xmm[::-1]:
+                code.append(MoveDQU(xmm, "[esp]"))
+                code.append(Add("esp", "16"))
             code.append(Pop("esi"))
             code.append(Pop("edi"))
             code.append(Pop("ebx"))

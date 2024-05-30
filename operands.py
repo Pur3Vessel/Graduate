@@ -267,7 +267,11 @@ class FuncCallOperand(Operand):
         for arg in self.args[::-1]:
             if arg.value in scalar_variables:
                 reg = arg.get_low_ir(scalar_variables)
-                load_params.append(Push(reg))
+                if reg not in xmm_regs:
+                    load_params.append(Push(reg))
+                else:
+                    load_params.append(Sub("esp", "4"))
+                    load_params.append(MoveSS("dword [esp]", reg))
                 params_sdvig += 4
             elif arg.value in array_adresses:
                 info = array_adresses[arg.value]

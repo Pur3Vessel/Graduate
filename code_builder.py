@@ -200,6 +200,10 @@ class ContextBuilder:
 
     def generate_entry_block(self):
         code = []
+        used_xmm = ["xmm0", "xmm1"]
+        for var, reg in self.scalar_variables.items():
+            if reg in xmm_regs and reg not in used_xmm:
+                used_xmm.append(reg)
         if not self.is_entry:
             code.append(Push("ebp"))
             code.append(Move("ebp", "esp"))
@@ -208,6 +212,9 @@ class ContextBuilder:
             code.append(Push("ebx"))
             code.append(Push("edi"))
             code.append(Push("esi"))
+            for xmm in used_xmm:
+                code.append(Sub("esp", "16"))
+                code.append(MoveDQU("[esp]", xmm))
             for var, reg in self.scalar_variables.items():
                 is_arg, sdvig = self.is_scalar_arg(var)
                 if is_arg:
@@ -216,12 +223,13 @@ class ContextBuilder:
                         code.append(Move(reg, "[ebp " + sdvig + "]"))
                     if reg in xmm_regs:
                         code.append(MoveSS(reg, "[ebp " + sdvig + "]"))
-        return code
+        return code, used_xmm
 
     def generate_context(self):
         self.code = []
         self.context.quit_ssa()
-        self.code += self.generate_entry_block()
+        entry_code, used_xmm = self.generate_entry_block()
+        self.code += entry_code
         first = self.context.graph.vertexes[1]
         stack = [first]
         for v in self.context.graph.vertexes:
@@ -229,13 +237,13 @@ class ContextBuilder:
         while len(stack) != 0:
             current = stack.pop()
             current.checked = True
-            self.generate_block(current)
+            self.generate_block(current, used_xmm)
             for next_v in current.output_vertexes:
                 if not next_v.checked:
                     stack.append(next_v)
         self.fix_reduntancy()
 
-    def generate_block(self, v):
+    def generate_block(self, v, used_xmm):
         self.code.append(Label(v.label))
         phi_assigns = []
         is_br = False
@@ -244,7 +252,7 @@ class ContextBuilder:
                 self.code += instruction.get_low_ir_branch(self.scalar_variables, v.output_vertexes, phi_assigns)
                 phi_assigns = []
             elif isinstance(instruction, ReturnInstruction):
-                self.code += instruction.get_low_ir_return(self.scalar_variables, self.is_entry, self.func_type)
+                self.code += instruction.get_low_ir_return(self.scalar_variables, self.is_entry, self.func_type, used_xmm)
             elif isinstance(instruction, AtomicAssign):
                 if instruction.is_phi:
                     phi_assigns += instruction.get_low_ir_arr(self.scalar_variables, self.array_adresses)

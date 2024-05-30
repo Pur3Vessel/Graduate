@@ -68,6 +68,15 @@ class MoveSS(LowIR):
         return "movss " + self.arg1 + ", " + self.arg2
 
 
+class MoveDQU(LowIR):
+    def __init__(self, arg1, arg2):
+        self.arg1 = arg1
+        self.arg2 = arg2
+
+    def __str__(self):
+        return "movdqu " + self.arg1 + ", " + self.arg2
+
+
 class Neg(LowIR):
     def __init__(self, arg):
         self.arg = arg
@@ -194,6 +203,14 @@ class Imul(LowIR):
 
     def __str__(self):
         return "imul " + self.arg1 + ", " + self.arg2
+
+
+class Idiv(LowIR):
+    def __init__(self, arg):
+        self.arg = arg
+
+    def __str__(self):
+        return "idiv " + self.arg
 
 
 class And(LowIR):
@@ -327,3 +344,19 @@ class Shl(LowIR):
 
     def __str__(self):
         return "shl " + self.arg1 + ", " + self.arg2
+
+
+class Inc(LowIR):
+    def __init__(self, arg1):
+        self.arg1 = arg1
+
+    def __str__(self):
+        return "inc " + self.arg1
+
+
+class Dec(LowIR):
+    def __init__(self, arg1):
+        self.arg1 = arg1
+
+    def __str__(self):
+        return "dec " + self.arg1

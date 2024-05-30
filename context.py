@@ -1,5 +1,6 @@
 from graph import *
 from lattice import *
+import re
 
 
 class Context:
@@ -265,7 +266,7 @@ class Context:
                 # print("flow", e[1].block[0])
                 if not exec_flag[e]:
                     exec_flag[e] = True
-                    if len(e[1].block) == 0:
+                    if len(e[1].block) == 0 and len(e[1].output_vertexes) != 0:
                         flowWL.add((e[1], e[1].output_vertexes[0]))
                         continue
                     if isinstance(e[1].block[0], PhiAssign):
@@ -409,6 +410,7 @@ class Context:
                     names[instruction.value] = instruction.argument.value
 
         for name in names.keys():
+            #print(name, names[name])
             for v in self.graph.vertexes:
                 for instruction in v.block:
                     if instruction.is_use_op(name) and not isinstance(instruction, PhiAssign):
@@ -473,8 +475,9 @@ class Context:
                     variables.append(instruction.value)
                 if isinstance(instruction, FuncDefInstruction):
                     for arg in instruction.arguments:
-                        if arg.dimentions is None and (arg.type == "int" or arg.type == "bool"):
-                            variables.append(arg.name)
+                        if arg.dimentions is None:
+                            if arg.type == "int" or arg.type == "bool":
+                                variables.append(arg.name)
                         else:
                             for d in arg.dimentions:
                                 variables.append(d)
@@ -647,7 +650,6 @@ class Context:
                 header = cycle[1]
                 for v in header.input_vertexes:
                     if v != cycle[0]:
-                        print(v.block[0])
                         pairs.append(v)
                         break
         biggest = nest[0]
@@ -700,42 +702,67 @@ class Context:
 
     def get_full_array_exp(self, exp, block, indexes):
         if isinstance(exp, AtomicAssign):
-            if isinstance(exp.argument, (IntConstantOperand, FloatConstantOperand)):
-                return str(exp.argument)
-            if "$" in exp.argument.value:
-                for instr in block:
-                    if instr.value == exp.argument.value:
-                        return self.get_full_exp(instr, block)
+            if not isinstance(exp.argument, ArrayUseOperand):
+                if exp.value in indexes:
+                    return None
+                else:
+                    return []
             else:
-                return str(exp.argument)
+                array_name = exp.argument.name
+                array_indexes = []
+                if len(exp.argument.indexing) != len(indexes) - 1:
+                    return None
+                for dim in exp.argument.indexing:
+                    if isinstance(dim, IntConstantOperand):
+                        return None
+                    if "$" in dim.value:
+                        for instr in block:
+                            if instr.value == dim.value:
+                                array_indexes.append(self.get_full_exp(instr, block))
+                                break
+                    else:
+                        array_indexes.append(dim.value)
+                array_gen = (array_name, array_indexes)
+                return [array_gen]
         if isinstance(exp, UnaryAssign):
-            if isinstance(exp.arg, (IntConstantOperand, FloatConstantOperand)):
-                return exp.op + str(exp.arg)
             if "$" in exp.arg.value:
                 for instr in block:
                     if instr.value == exp.arg.value:
-                        return exp.op + self.get_full_exp(instr, block)
+                        return self.get_full_array_exp(instr, block, indexes)
             else:
-                return exp.op + str(exp.arg)
+                if exp.arg.value in indexes:
+                    return None
+                else:
+                    return []
         if isinstance(exp, BinaryAssign):
-            left, right = "", ""
+            left, right = [], []
             if isinstance(exp.left, (IntConstantOperand, FloatConstantOperand)):
-                left = str(exp.left)
+                left = []
             elif "$" in exp.left.value:
                 for instr in block:
-                    if instr.value == exp.left:
-                        left = self.get_full_exp(instr, block)
+                    if instr.value == exp.left.value:
+                        left = self.get_full_array_exp(instr, block, indexes)
+                        if left is None:
+                            return None
             else:
-                left = str(exp.left)
+                if exp.left.value in indexes:
+                    return None
+                else:
+                    left = []
             if isinstance(exp.right, (IntConstantOperand, FloatConstantOperand)):
-                right = str(exp.right)
+                right = []
             elif "$" in exp.right.value:
                 for instr in block:
                     if instr.value == exp.right.value:
-                        right = self.get_full_exp(instr, block)
+                        right = self.get_full_array_exp(instr, block, indexes)
+                        if right is None:
+                            return None
             else:
-                right = str(exp.right)
-            return left + exp.op + right
+                if exp.right.value in indexes:
+                    return None
+                else:
+                    right = []
+            return left + right
 
     def get_cycle_index_info(self, cycle):
         latch = cycle[0]
@@ -777,13 +804,18 @@ class Context:
 
     def get_nest_body_info(self, nest_body, indexes):
         n_arrays = 0
+        array_gen, array_in = None, None
         for instruction in nest_body.block:
             if isinstance(instruction, AtomicAssign):
                 if instruction.dimentions is None:
                     if "$" not in instruction.value:
                         return None
                 else:
+                    if len(instruction.dimentions) != len(indexes) - 1:
+                        return None
                     n_arrays += 1
+                    if n_arrays > 1:
+                        return None
                     array_name = instruction.value
                     array_indexes = []
                     for dim in instruction.dimentions:
@@ -792,23 +824,57 @@ class Context:
                         if "$" in dim.value:
                             for instr in nest_body.block:
                                 if instr.value == dim.value:
-                                    array_indexes.append(self.get_full_exp(instr, nest_body))
+                                    array_indexes.append(self.get_full_exp(instr, nest_body.block))
                                     break
                         else:
                             array_indexes.append(dim.value)
                     array_gen = (array_name, array_indexes)
                     array_in = []
-                    if not isinstance(instruction.argument, IdOperand) or "$" not in instruction.argument:
+                    if not isinstance(instruction.argument, IdOperand) or "$" not in instruction.argument.value:
                         return None
                     for instr in nest_body.block:
                         if instr.value == instruction.argument.value:
-                            array_in = self.get_full_array_exp(instr, nest_body, indexes)
+                            array_in = self.get_full_array_exp(instr, nest_body.block, indexes)
                             break
-                    if len(array_in) == 0:
+                    if array_in is None or len(array_in) == 0:
                         return None
 
         if n_arrays == 0:
             return None
+
+        return array_gen, array_in
+
+    def get_index_constants(self, array_use):
+        pattern = r'^([a-zA-Z][a-zA-Z0-9]*)([+-]\d+)?$'
+        indexes = []
+        for index in array_use:
+            match = re.match(pattern, index)
+            if match:
+                id_value = match.group(1)
+                constant = match.group(2)
+                if constant is not None:
+                    constant = int(constant)
+                indexes.append((id_value, constant))
+            else:
+                return None
+        return indexes
+
+    def analyze_array_use(self, array_use, indexes):
+        indexing = array_use[1]
+        indexing = self.get_index_constants(indexing)
+        if indexing is None:
+            return None
+        array_name = array_use[0]
+        inds = []
+        for i, idx in enumerate(indexing):
+            idx_name = idx[0]
+            if idx_name != indexes[i]:
+                return None
+            value = idx[1]
+            if value is None:
+                value = 0
+            inds.append(value)
+        return array_name, inds
 
     def tiling_nest(self, nest):
         is_perfect, nest_body = self.is_perfect_nest(nest)
@@ -828,8 +894,20 @@ class Context:
         print(loops_info)
         indexes = list(map(lambda x: x[0], loops_info))
         body_info = self.get_nest_body_info(nest_body[0], indexes)
+        print(body_info)
         if body_info is None:
             return
+        array_gen = self.analyze_array_use(body_info[0], indexes[1:])
+        if array_gen is None:
+            return None
+        array_uses = []
+        for use in body_info[1]:
+            array_use = self.analyze_array_use(use, indexes[1:])
+            if array_use is None:
+                return None
+            array_uses.append(array_use)
+        print(array_gen)
+        print(array_uses)
 
     def tiling(self):
         loop_nests = self.graph.find_loop_nests()

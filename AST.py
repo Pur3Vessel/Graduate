@@ -44,7 +44,7 @@ def place_assigns(assigns):
 def generate_block(block):
     for action in block:
         action.generate()
-        if isinstance(action, BreakAction) or isinstance(action, ContinueAction) or isinstance(action, GotoAction):
+        if isinstance(action, BreakAction) or isinstance(action, ContinueAction) or isinstance(action, GotoAction) or isinstance(action, ReturnAction):
             return True
 
 
@@ -220,10 +220,15 @@ class BinOp(Expression):
                 raise SemanticError(self.pos, "Несоотвествие типа и операции")
             self.type = BoolType()
 
+        if self.op in ["mod", "div"]:
+            if not isinstance(self.left.type, IntType) or not isinstance(self.right.type, IntType):
+                raise SemanticError(self.pos, "Несоотвествие типа и операции")
+            self.type = IntType()
+
         if self.op in ["+", "-", "*", "/", "mod", "div"]:
             if not isinstance(self.left.type, NumericType) or not isinstance(self.right.type, NumericType):
                 raise SemanticError(self.pos, "Несоотвествие типа и операции")
-            if isinstance(self.left.type, IntType) and isinstance(self.right.type, IntType):
+            if isinstance(self.left.type, IntType) and isinstance(self.right.type, IntType) and self.op != "/":
                 self.type = IntType()
             else:
                 self.type = FloatType()
@@ -249,14 +254,14 @@ class UnaryOp(Expression):
     def check(self, defined_funcs, scalar_args, array_args, decl_vars, decl_arrays):
         self.exp.check(defined_funcs, scalar_args, array_args, decl_vars, decl_arrays)
         if self.op == "not":
-            if self.exp.type != BoolType:
+            if not isinstance(self.exp.type, BoolType):
                 raise SemanticError(self.pos, "Несоотвествие типа и операции")
             self.type = BoolType()
 
         if self.op == "-":
-            if self.exp.type != NumericType:
+            if not isinstance(self.exp.type, NumericType):
                 raise SemanticError(self.pos, "Несоотвествие типа и операции")
-            if self.exp.type == IntType:
+            if isinstance(self.exp.type, IntType):
                 self.type = IntType()
             else:
                 self.type = FloatType()
@@ -354,7 +359,7 @@ class FuncCall(Expression):
                     raise SemanticError(self, "Несовпадение количества размерностей")
                 arg.is_arr = True
             else:
-                arg.check(defined_funcs, defined_funcs, scalar_args, array_args, decl_vars, decl_arrays)
+                arg.check(defined_funcs, scalar_args, array_args, decl_vars, decl_arrays)
                 if arg.type != f.args[i].type:
                     raise SemanticError(self.pos, "Тип выражения не совпадает с типом аргумента функции")
         self.type = f.return_type
@@ -584,7 +589,7 @@ class IfAction(Action):
 
     def check(self, defined_funcs, scalar_args, array_args, decl_vars, decl_arrays, labels, is_loop, func_type):
         self.if_st.check(defined_funcs, scalar_args, array_args, decl_vars, decl_arrays)
-        if self.if_st.type != BoolType:
+        if not isinstance(self.if_st.type, BoolType):
             raise SemanticError(self.pos, "Тип проверки не bool")
         decl_vars_then = deepcopy(decl_vars)
         decl_arrays_then = deepcopy(decl_arrays)
