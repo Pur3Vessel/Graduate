@@ -639,45 +639,103 @@ class Context:
         return arrays
 
     def is_perfect_nest(self, nest):
-        nest = sorted(nest, key=lambda x: len(nest))
+        nest = sorted(nest, key=lambda x: len(x), reverse=True)
         pairs = []
-        for cycle in nest:
+        for i, cycle in enumerate(nest):
             pairs += [cycle[0], cycle[1]]
-        biggest = nest[-1]
+            if i > 0:
+                header = cycle[1]
+                for v in header.input_vertexes:
+                    if v != cycle[0]:
+                        print(v.block[0])
+                        pairs.append(v)
+                        break
+        biggest = nest[0]
+        nest_body = []
         for block in biggest:
-            if block not in pairs and block not in nest[0]:
-                return False
-        return True
+            if block not in pairs and block not in nest[-1]:
+                return False, nest_body
+            if block not in pairs:
+                nest_body.append(block)
+        return True, nest_body
 
     def get_full_exp(self, exp, block):
         if isinstance(exp, AtomicAssign):
-            if "$" in exp.argument:
+            if isinstance(exp.argument, (IntConstantOperand, FloatConstantOperand)):
+                return str(exp.argument)
+            if "$" in exp.argument.value:
                 for instr in block:
-                    if instr.value == exp.argument:
+                    if instr.value == exp.argument.value:
                         return self.get_full_exp(instr, block)
             else:
                 return str(exp.argument)
         if isinstance(exp, UnaryAssign):
-            if "$" in exp.arg:
+            if isinstance(exp.arg, (IntConstantOperand, FloatConstantOperand)):
+                return exp.op + str(exp.arg)
+            if "$" in exp.arg.value:
                 for instr in block:
-                    if instr.value == exp.arg:
+                    if instr.value == exp.arg.value:
                         return exp.op + self.get_full_exp(instr, block)
             else:
                 return exp.op + str(exp.arg)
         if isinstance(exp, BinaryAssign):
-            if "$" in exp.left:
+            left, right = "", ""
+            if isinstance(exp.left, (IntConstantOperand, FloatConstantOperand)):
+                left = str(exp.left)
+            elif "$" in exp.left.value:
                 for instr in block:
                     if instr.value == exp.left:
                         left = self.get_full_exp(instr, block)
             else:
                 left = str(exp.left)
-            if "$" in exp.right:
+            if isinstance(exp.right, (IntConstantOperand, FloatConstantOperand)):
+                right = str(exp.right)
+            elif "$" in exp.right.value:
                 for instr in block:
-                    if instr.value == exp.right:
+                    if instr.value == exp.right.value:
                         right = self.get_full_exp(instr, block)
             else:
-                left = str(exp.left)
+                right = str(exp.right)
+            return left + exp.op + right
 
+    def get_full_array_exp(self, exp, block, indexes):
+        if isinstance(exp, AtomicAssign):
+            if isinstance(exp.argument, (IntConstantOperand, FloatConstantOperand)):
+                return str(exp.argument)
+            if "$" in exp.argument.value:
+                for instr in block:
+                    if instr.value == exp.argument.value:
+                        return self.get_full_exp(instr, block)
+            else:
+                return str(exp.argument)
+        if isinstance(exp, UnaryAssign):
+            if isinstance(exp.arg, (IntConstantOperand, FloatConstantOperand)):
+                return exp.op + str(exp.arg)
+            if "$" in exp.arg.value:
+                for instr in block:
+                    if instr.value == exp.arg.value:
+                        return exp.op + self.get_full_exp(instr, block)
+            else:
+                return exp.op + str(exp.arg)
+        if isinstance(exp, BinaryAssign):
+            left, right = "", ""
+            if isinstance(exp.left, (IntConstantOperand, FloatConstantOperand)):
+                left = str(exp.left)
+            elif "$" in exp.left.value:
+                for instr in block:
+                    if instr.value == exp.left:
+                        left = self.get_full_exp(instr, block)
+            else:
+                left = str(exp.left)
+            if isinstance(exp.right, (IntConstantOperand, FloatConstantOperand)):
+                right = str(exp.right)
+            elif "$" in exp.right.value:
+                for instr in block:
+                    if instr.value == exp.right.value:
+                        right = self.get_full_exp(instr, block)
+            else:
+                right = str(exp.right)
+            return left + exp.op + right
 
     def get_cycle_index_info(self, cycle):
         latch = cycle[0]
@@ -689,23 +747,89 @@ class Context:
             if v != latch:
                 enter = v
         index_increment = latch.block[0]
-
-        if isinstance(index_increment, BinaryAssign) and index_increment.value == index_increment.left and isinstance(index_increment.right, IntConstantOperand) and index_increment.right.value == 1:
+        if isinstance(index_increment,
+                      BinaryAssign) and index_increment.value == index_increment.left.value and isinstance(
+            index_increment.right, IntConstantOperand) and index_increment.right.value == 1:
             index_name = index_increment.value
         else:
-            return 0
+            return None
         start = None
         for instruction in enter.block[::-1]:
-            if isinstance(instruction)
+            if isinstance(instruction, AtomicAssign) and instruction.value == index_name:
+                start = self.get_full_exp(instruction, enter.block)
+        if start is None:
+            return None
+        # print(index_name, start)
+        cmp = latch.block[-2]
+        if not (isinstance(cmp, BinaryAssign) and cmp.op == "<" and cmp.left.value == index_name):
+            return None
+        end = None
+        if isinstance(cmp.right, IdOperand) and "$" in cmp.right.value:
+            for instr in latch.block:
+                if instr.value == cmp.right.value:
+                    end = self.get_full_exp(instr, latch.block)
+                    break
+        else:
+            end = str(cmp.right)
+        if end is None:
+            return None
+        return index_name, start, end
 
+    def get_nest_body_info(self, nest_body, indexes):
+        n_arrays = 0
+        for instruction in nest_body.block:
+            if isinstance(instruction, AtomicAssign):
+                if instruction.dimentions is None:
+                    if "$" not in instruction.value:
+                        return None
+                else:
+                    n_arrays += 1
+                    array_name = instruction.value
+                    array_indexes = []
+                    for dim in instruction.dimentions:
+                        if isinstance(dim, IntConstantOperand):
+                            return None
+                        if "$" in dim.value:
+                            for instr in nest_body.block:
+                                if instr.value == dim.value:
+                                    array_indexes.append(self.get_full_exp(instr, nest_body))
+                                    break
+                        else:
+                            array_indexes.append(dim.value)
+                    array_gen = (array_name, array_indexes)
+                    array_in = []
+                    if not isinstance(instruction.argument, IdOperand) or "$" not in instruction.argument:
+                        return None
+                    for instr in nest_body.block:
+                        if instr.value == instruction.argument.value:
+                            array_in = self.get_full_array_exp(instr, nest_body, indexes)
+                            break
+                    if len(array_in) == 0:
+                        return None
 
+        if n_arrays == 0:
+            return None
 
     def tiling_nest(self, nest):
-        print(self.is_perfect_nest(nest))
+        is_perfect, nest_body = self.is_perfect_nest(nest)
+        if not is_perfect or len(nest_body) != 1:
+            return
+        nest = sorted(nest, key=lambda x: len(x), reverse=True)
+        loops_info = []
         for cycle in nest:
             info = self.get_cycle_index_info(cycle)
-            print(info)
-
+            if info[1].isdigit():
+                info = (info[0], int(info[1]), info[2])
+            if info[2].isdigit():
+                info = (info[0], info[1], int(info[2]))
+            loops_info.append(info)
+            if info is None:
+                return
+        print(loops_info)
+        indexes = list(map(lambda x: x[0], loops_info))
+        body_info = self.get_nest_body_info(nest_body[0], indexes)
+        if body_info is None:
+            return
 
     def tiling(self):
         loop_nests = self.graph.find_loop_nests()
