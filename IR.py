@@ -498,7 +498,7 @@ class UnaryAssign(IR):
             if self.type == "float":
                 code.append(MoveSS("xmm0", argument_reg))
                 code.append(Sub("esp", "4"))
-                code.append(Move("[esp]", "0x80000000"))
+                code.append(Move("[esp]", "dword 0x80000000"))
                 code.append(MoveSS("xmm1", "dword [esp]"))
                 code.append(Add("esp", "4"))
                 code.append(Xorps("xmm0", "xmm1"))
@@ -838,18 +838,18 @@ class BinaryAssign(IR):
                     code.append(Or("eax", right_reg))
                     code.append(Move(reg, "eax"))
                 if self.op == "+":
-                    if right_reg == "1" and left_reg in regs:
+                    if right_reg == "1" and left_reg in regs and reg == left_reg:
                         code.append(Inc(left_reg))
                     else:
                         code.append(Move("eax", left_reg))
                         code.append(Add("eax", right_reg))
                         code.append(Move(reg, "eax"))
                 if self.op == "-":
-                    if right_reg == "1" and left_reg in regs:
+                    if right_reg == "1" and left_reg in regs and reg == left_reg:
                         code.append(Dec(left_reg))
                     else:
                         code.append(Move("eax", left_reg))
-                        code.append(Add("eax", right_reg))
+                        code.append(Sub("eax", right_reg))
                         code.append(Move(reg, "eax"))
                 if self.op == "*":
                     code.append(Move("eax", left_reg))
@@ -863,6 +863,12 @@ class BinaryAssign(IR):
                             right_reg = get_reg([reg, left_reg])
                             code.append(Push(right_reg))
                             pushable = True
+                        if right_reg not in regs:
+                            old = right_reg
+                            right_reg = get_reg([reg, left_reg])
+                            code.append(Push(right_reg))
+                            pushable = True
+                            code.append(Move(right_reg, old))
                         code.append(Xor("edx", "edx"))
                         code.append(Idiv(right_reg))
                         if self.op == "div":
@@ -874,12 +880,19 @@ class BinaryAssign(IR):
                     else:
                         code.append(Push("edx"))
                         pushable = False
+                        pushable1 = False
                         code.append(Move("eax", left_reg))
                         if right_reg == "edx":
                             right_reg = get_reg([reg, left_reg])
                             code.append(Push("edx"))
                             code.append(Push(right_reg))
                             pushable = True
+                        if right_reg not in regs:
+                            old = right_reg
+                            right_reg = get_reg([reg, left_reg])
+                            code.append(Push(right_reg))
+                            pushable1 = True
+                            code.append(Move(right_reg, old))
                         code.append(Xor("edx", "edx"))
                         code.append(Idiv(right_reg))
                         if self.op == "div":
@@ -889,6 +902,8 @@ class BinaryAssign(IR):
                         if pushable:
                             code.append(Pop(right_reg))
                             code.append(Pop("edx"))
+                        if pushable1:
+                            code.append(Pop(right_reg))
                         code.append(Pop("edx"))
                 if self.is_cmp():
                     if self.left_type == "int" and self.right_type == "int":
