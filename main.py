@@ -1,6 +1,8 @@
 import builder
 from frontend import *
 from code_builder import *
+import argparse
+
 
 def opt_pass(tree, j):
     changed = False
@@ -30,14 +32,13 @@ def opt_pass(tree, j):
         builder.contexts[func.name].change_numeration()
         # Constant_propagation
         changed = builder.contexts[func.name].constant_propagation() or changed
-        #print(func.name, changed)
+        # print(func.name, changed)
         # Copy_propagation
         changed = builder.contexts[func.name].copy_propagation() or changed
-        #print(func.name, changed)
+        # print(func.name, changed)
         # Dead code elimination
         changed = builder.contexts[func.name].dead_code_elimination() or changed
-        #print(func.name, changed)
-
+        # print(func.name, changed)
 
     if changed:
         for func in tree.funcDefs:
@@ -46,20 +47,17 @@ def opt_pass(tree, j):
     return changed
 
 
-if __name__ == "__main__":
+def generate_tests():
     n_tests = 7
     for i in range(1, n_tests + 1):
         builder.contexts = {}
         test_file = f"tests/test{i}.txt"
         out_file = f"out/out{i}.txt"
         out_file_start = f"out/out{i}_start.txt"
-        out_file_rd = f"out/out{i}_rd.txt"
         tree = parse(test_file)
         tree.generate()
         for func in tree.funcDefs:
             builder.contexts[func.name].set_contexts(builder.contexts)
-            builder.contexts[func.name].graph.dfs()
-            builder.contexts[func.name].graph.build_dominators_tree()
         builder.set_labels()
         builder.print_graph(out_file_start)
         changed = True
@@ -67,23 +65,35 @@ if __name__ == "__main__":
         while changed:
             j += 1
             changed = opt_pass(tree, j)
-        #for func in tree.funcDefs:
-        #    builder.contexts[func.name].remove_ssa()
-        #    builder.contexts[func.name].graph.get_natural_cycles()
-        #    builder.contexts[func.name].tiling()
-
         print(f"Тест {i} завершился за {j} пассов")
         builder.set_labels()
         builder.print_graph(out_file)
-        #for func in tree.funcDefs:
-        #    builder.contexts[func.name].graph.dfs()
-        #    builder.contexts[func.name].graph.build_dominators_tree()
-        #    builder.contexts[func.name].graph.make_DF()
-        #    builder.contexts[func.name].place_phi()
-        #    builder.contexts[func.name].change_numeration()
-        #    builder.contexts[func.name].dead_code_elimination()
-        #builder.print_graph(out_file + "_")
         code_builder = CodeBuilder(tree.funcDefs, builder, i)
         code_builder.allocate_registers()
         code_builder.generate_code()
 
+
+def generate_file(filename):
+    builder.contexts = {}
+    tree = parse(filename)
+    tree.generate()
+    for func in tree.funcDefs:
+        builder.contexts[func.name].set_contexts(builder.contexts)
+    builder.set_labels()
+    changed = True
+    j = 0
+    while changed:
+        j += 1
+        changed = opt_pass(tree, j)
+    builder.set_labels()
+    code_builder = CodeBuilder(tree.funcDefs, builder, -1)
+    code_builder.allocate_registers()
+    code_builder.generate_code()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("filename")
+    args = parser.parse_args()
+    print(args)
+    generate_tests()

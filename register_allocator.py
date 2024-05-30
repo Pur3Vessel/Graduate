@@ -133,8 +133,8 @@ class IFG:
                 if v == other:
                     continue
                 if other not in v.adjacency:
-                    print(list(map(lambda x: x.value, vertexes)))
-                    print(v.value, other.value)
+                    #print(list(map(lambda x: x.value, vertexes)))
+                    #print(v.value, other.value)
                     return False
         return True
 

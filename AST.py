@@ -977,8 +977,8 @@ class FuncDef:
 
     def check(self, defined_funcs):
         if self.name == "main":
-            # if not isinstance(self.return_type, IntType):
-            #    raise SemanticError(self.pos, "У функции main возвращаемый тип не int")
+            if not isinstance(self.return_type, IntType):
+               raise SemanticError(self.pos, "У функции main возвращаемый тип не int")
             if len(self.args) > 0:
                 raise SemanticError(self.pos, "У функции main не должно быть аргументов")
         if len(self.args) != len(set(map(lambda x: x.name, self.args))):
