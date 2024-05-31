@@ -288,7 +288,7 @@ class ContextBuilder:
             not_append = not (isinstance(c, (Move, MoveSS)) and c.arg1 == c.arg2)
             if isinstance(c, Jump) and i != len(self.code) - 1:
                 if isinstance(self.code[i + 1], Label) and c.label == self.code[i + 1].label:
-                    not_append = True
+                    not_append = False
             if not_append:
                 new_code.append(c)
         self.code = new_code
