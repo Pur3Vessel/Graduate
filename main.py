@@ -93,7 +93,9 @@ def generate_file(filename):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("filename")
+    parser.add_argument("filename",nargs="?", default=None)
     args = parser.parse_args()
-    print(args)
-    generate_tests()
+    if args.filename:
+        generate_file(args.filename)
+    else:
+        generate_tests()
