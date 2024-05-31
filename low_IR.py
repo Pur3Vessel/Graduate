@@ -360,3 +360,12 @@ class Dec(LowIR):
 
     def __str__(self):
         return "dec " + self.arg1
+
+
+class RCPSS(LowIR):
+    def __init__(self, arg1, arg2):
+        self.arg1 = arg1
+        self.arg2 = arg2
+
+    def __str__(self):
+        return "rcpss " + self.arg1 + ", " + self.arg2

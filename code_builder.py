@@ -204,10 +204,13 @@ class ContextBuilder:
 
     def generate_entry_block(self):
         code = []
-        used_xmm = ["xmm0", "xmm1"]
+        used_xmm = []
         for var, reg in self.scalar_variables.items():
             if reg in xmm_regs and reg not in used_xmm:
                 used_xmm.append(reg)
+        if len(used_xmm) != 0:
+            used_xmm.append("xmm0")
+            used_xmm.append("xmm1")
         if not self.is_entry:
             code.append(Push("ebp"))
             code.append(Move("ebp", "esp"))
