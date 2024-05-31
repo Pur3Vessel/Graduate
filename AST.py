@@ -8,7 +8,7 @@ NestedList = Union[float, List['NestedList']]
 
 
 def check_dimentions(nested_list, dimentions):
-    if type(nested_list) is float and len(dimentions) == 0:
+    if type(nested_list) is float or type(nested_list) is int and len(dimentions) == 0:
         return True
     if len(nested_list) != int(dimentions[0]):
         return False
@@ -126,7 +126,7 @@ def simplify_expression(expression):
             new_assigns.append(new_exp)
             return new_assigns, new_tmp
         else:
-            print("Что-то не такF")
+            print("Что-то не так")
 
 
 class SemanticError(pe.Error):

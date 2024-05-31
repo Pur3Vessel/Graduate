@@ -1,6 +1,7 @@
 from graph import *
 from lattice import *
 import re
+from collections import Counter
 
 
 class Context:
@@ -542,8 +543,9 @@ class Context:
                 breakable = True
                 break
             label = self.graph.instructions_to_labels[instruction]
-            labels.append(label)
-            if labels.count(label) > 4:
+            if len(labels) == 0 or not (labels[-1] == label):
+                labels.append(label)
+            if labels.count(label) > 2:
                 breakable = True
                 break
             if isinstance(instruction, PhiAssign):
@@ -569,7 +571,8 @@ class Context:
             if label in labels and label != labels[-1]:
                 last = True
                 break
-            labels.append(label)
+            if len(labels) == 0 or not (labels[-1] == label):
+                labels.append(label)
             if isinstance(instruction, PhiAssign):
                 is_use = instruction.is_use_op_for_label(var, self.which_pred(vertex, pred))
             else:
@@ -598,7 +601,9 @@ class Context:
                 if not find_assign:
                     continue
                 if not isinstance(instruction, PhiAssign):
-                    labels.append(self.graph.instructions_to_labels[instruction])
+                    label = self.graph.instructions_to_labels[instruction]
+                    if len(labels) == 0 or not (labels[-1] == label):
+                        labels.append(label)
                     if instruction.is_use_op(var):
                         self.add_live_labels_list(labels, var)
             for out_v in v.output_vertexes:

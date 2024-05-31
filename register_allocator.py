@@ -9,6 +9,7 @@ label_to_color = {
     6: "orange"
 }
 
+
 class IFG_vertex:
     def __init__(self, value):
         self.value = value.replace("$", "_")
@@ -133,8 +134,8 @@ class IFG:
                 if v == other:
                     continue
                 if other not in v.adjacency:
-                    #print(list(map(lambda x: x.value, vertexes)))
-                    #print(v.value, other.value)
+                    # print(list(map(lambda x: x.value, vertexes)))
+                    # print(v.value, other.value)
                     return False
         return True
 
@@ -183,6 +184,3 @@ class IFG:
                 self.to_graph("IFG/ifg.txt")
                 raise RuntimeError("Неполадка с раскраской")
             self.vars_to_color[v.value] = v.color
-
-
-
