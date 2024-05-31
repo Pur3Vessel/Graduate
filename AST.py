@@ -733,7 +733,8 @@ class WhileAction(Action):
         builder.set_insert(header)
         builder.create_block()
         generate_block(self.block)
-        builder.add_connector(builder.current_block(), latch)
+        if len(builder.current_block().output_vertexes) == 0:
+            builder.add_connector(builder.current_block(), latch)
         builder.add_connector(latch, header)
         builder.add_connector(latch, after_block)
         builder.set_insert(after_block)
@@ -791,7 +792,8 @@ class DoWhileAction(Action):
         builder.set_insert(header)
         builder.create_block()
         generate_block(self.block)
-        builder.add_connector(builder.current_block(), latch)
+        if len(builder.current_block().output_vertexes) == 0:
+            builder.add_connector(builder.current_block(), latch)
         builder.add_connector(latch, header)
         builder.add_connector(latch, after_block)
         builder.set_insert(after_block)
@@ -889,7 +891,8 @@ class ForAction(Action):
         builder.set_insert(header)
         builder.create_block()
         generate_block(self.block)
-        builder.add_connector(builder.current_block(), latch)
+        if len(builder.current_block().output_vertexes) == 0:
+            builder.add_connector(builder.current_block(), latch)
         builder.add_connector(latch, header)
         builder.add_connector(latch, after_block)
         builder.set_insert(after_block)
