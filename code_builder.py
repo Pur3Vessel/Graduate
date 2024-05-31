@@ -284,8 +284,12 @@ class ContextBuilder:
 
     def fix_reduntancy(self):
         new_code = []
-        for c in self.code:
-            if not (isinstance(c, (Move, MoveSS)) and c.arg1 == c.arg2):
+        for i, c in enumerate(self.code):
+            not_append = not (isinstance(c, (Move, MoveSS)) and c.arg1 == c.arg2)
+            if isinstance(c, Jump) and i != len(self.code) - 1:
+                if isinstance(self.code[i + 1], Label) and c.label == self.code[i + 1].label:
+                    not_append = True
+            if not_append:
                 new_code.append(c)
         self.code = new_code
 
