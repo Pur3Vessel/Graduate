@@ -95,7 +95,7 @@ class Context:
             if v.label is None:
                 cycleN.append(v)
             else:
-                if v.label not in list(map(lambda x: x.label,cycleN)):
+                if v.label not in list(map(lambda x: x.label, cycleN)):
                     cycleN.append(v)
         cycle = cycleN
         invar_order = self.mark_invar(cycle)
@@ -201,10 +201,10 @@ class Context:
         exits = self.graph.get_exits_for_cycle(cycle)
         # for exit in exits:
         #    print(exit.dfs_number)
-        #subgraph = Graph()
-        #subgraph.vertexes = [preheader] + cycle + exits
+        # subgraph = Graph()
+        # subgraph.vertexes = [preheader] + cycle + exits
 
-        #subgraph.build_dominators_tree()
+        # subgraph.build_dominators_tree()
         is_pred = self.dom_uses(instruction, cycle) and self.dom_exits(instruction, self.graph, exits)
         self.graph.clean_dominators()
         return is_pred
@@ -419,7 +419,7 @@ class Context:
                     names[instruction.value] = instruction.argument.value
 
         for name in names.keys():
-            #print(name, names[name])
+            # print(name, names[name])
             for v in self.graph.vertexes:
                 for instruction in v.block:
                     if instruction.is_use_op(name) and not isinstance(instruction, PhiAssign):
@@ -625,6 +625,17 @@ class Context:
 
         return var_number == other_var_number or var_number == -1 or other_var_number == -1
 
+    def find_place(self, block):
+        j = len(block)
+        is_br = False
+        for instruction in block[::-1]:
+            if isinstance(instruction, IsTrueInstruction):
+                j -= 1
+                is_br = True
+            if isinstance(instruction, BinaryAssign) and instruction.is_cmp() and is_br:
+                j -= 1
+        return j
+
     def quit_ssa(self):
         for v in self.graph.vertexes:
             for instruction in v.block:
@@ -636,11 +647,11 @@ class Context:
                     v1 = v.input_vertexes[0]
                     v2 = v.input_vertexes[1]
                     if len(v1.block) != 0 and isinstance(v1.block[-1], IsTrueInstruction):
-                        v1.block.insert(len(v1.block) - 1, assign1)
+                        v1.block.insert(self.find_place(v1.block), assign1)
                     else:
                         v1.block.append(assign1)
                     if len(v2.block) != 0 and isinstance(v2.block[-1], IsTrueInstruction):
-                        v2.block.insert(len(v2.block) - 1, assign2)
+                        v2.block.insert(self.find_place(v2.block), assign2)
                     else:
                         v2.block.append(assign2)
             while len(v.block) > 0 and isinstance(v.block[0], PhiAssign):

@@ -124,6 +124,45 @@ class JumpEqual(LowIR):
         return "je " + self.label
 
 
+class JumpNotEqual(LowIR):
+    def __init__(self, label):
+        self.label = label
+
+    def __str__(self):
+        return "jne " + self.label
+
+class JumpGreater(LowIR):
+    def __init__(self, label):
+        self.label = label
+
+    def __str__(self):
+        return "jg " + self.label
+
+
+class JumpLess(LowIR):
+    def __init__(self, label):
+        self.label = label
+
+    def __str__(self):
+        return "jl " + self.label
+
+
+class JumpLessEqual(LowIR):
+    def __init__(self, label):
+        self.label = label
+
+    def __str__(self):
+        return "jle " + self.label
+
+
+class JumpGreaterEqual(LowIR):
+    def __init__(self, label):
+        self.label = label
+
+    def __str__(self):
+        return "jge " + self.label
+
+
 class Cmp(LowIR):
     def __init__(self, arg1, arg2):
         self.arg1 = arg1

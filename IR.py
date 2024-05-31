@@ -700,6 +700,44 @@ class BinaryAssign(IR):
                     new_dims.append(d)
             self.dimentions = new_dims
 
+
+    def get_low_ir_cmp(self, scalar_variables):
+        code = []
+        if isinstance(self.left, (IntConstantOperand, FloatConstantOperand)):
+            self.left, self.right = self.right, self.left
+            self.left_type, self.right_type = self.right_type, self.left_type
+            self.op = revert_cmp_op(self.op)
+        left_reg = self.left.get_low_ir(scalar_variables)
+        right_reg = self.right.get_low_ir(scalar_variables)
+        dw = ""
+        if left_reg not in regs and isinstance(self.right, (IntConstantOperand, FloatConstantOperand)):
+            dw = " dword "
+        if self.left_type == "int" and self.right_type == "int":
+            code.append(Cmp(left_reg, dw + right_reg))
+        else:
+            if self.left_type == "int":
+                if left_reg in regs or (left_reg[0] == "[" and left_reg[-1] == "]"):
+                    code.append(Cvtsi2ss("xmm0", left_reg))
+                else:
+                    code.append(Sub("esp", "4"))
+                    code.append(Move("dword [esp]", left_reg))
+                    code.append(MoveSS("xmm0", "[esp]"))
+                    code.append(Add("esp", "4"))
+            else:
+                code.append(MoveSS("xmm0", left_reg))
+            if self.right_type == "int":
+                if right_reg in regs or (right_reg[0] == "[" and right_reg[-1] == "]"):
+                    code.append(Cvtsi2ss("xmm1", right_reg))
+                else:
+                    code.append(Sub("esp", "4"))
+                    code.append(Move("dword [esp]", right_reg))
+                    code.append(MoveSS("xmm1", "[esp]"))
+                    code.append(Add("esp", "4"))
+            else:
+                code.append(MoveSS("xmm1", right_reg))
+            code.append(Comiss("xmm0", "xmm1"))
+        return code, self.op
+
     def get_low_ir(self, scalar_variables):
         if isinstance(self.left, (IntConstantOperand, FloatConstantOperand)) and self.is_cmp():
             self.left, self.right = self.right, self.left
@@ -873,7 +911,7 @@ class BinaryAssign(IR):
                     is_overwrite = True
                 right_reg = self.right.get_low_ir(scalar_variables)
                 dw = ""
-                if self.is_cmp() and left_reg not in reg and isinstance(self.right,
+                if self.is_cmp() and left_reg not in regs and isinstance(self.right,
                                                                         (IntConstantOperand, FloatConstantOperand)):
                     dw = " dword "
                 if self.op == "and":
@@ -1171,11 +1209,30 @@ class IsTrueInstruction(IR):
     def replace_operand(self, name, new_name):
         self.value = IdOperand(new_name)
 
-    def get_low_ir_branch(self, scalar_variables, output_vertexes, phi_assigns):
+    def get_jump(self, compared, out):
+        if compared == "==":
+            return JumpEqual(out)
+        if compared == "!=":
+            return JumpNotEqual(out)
+        if compared == ">":
+            return JumpGreater(out)
+        if compared == "<":
+            return JumpLess(out)
+        if compared == ">=":
+            return JumpGreaterEqual(out)
+        if compared == "<=":
+            return JumpLessEqual(out)
+
+    def get_low_ir_branch(self, scalar_variables, output_vertexes, phi_assigns, compared):
         code = []
-        argument_reg = self.value.get_low_ir(scalar_variables)
-        code.append(Cmp(argument_reg, "1"))
-        code += phi_assigns
-        code.append(JumpEqual(output_vertexes[0].label))
-        code.append(Jump(output_vertexes[1].label))
+        if compared is not None:
+            code += phi_assigns
+            code.append(self.get_jump(compared, output_vertexes[0].label))
+            code.append(Jump(output_vertexes[1].label))
+        else:
+            argument_reg = self.value.get_low_ir(scalar_variables)
+            code.append(Cmp(argument_reg, "1"))
+            code += phi_assigns
+            code.append(JumpEqual(output_vertexes[0].label))
+            code.append(Jump(output_vertexes[1].label))
         return code

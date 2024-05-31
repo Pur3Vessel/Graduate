@@ -253,10 +253,10 @@ class ContextBuilder:
     def generate_block(self, v, used_xmm):
         self.code.append(Label(v.label))
         phi_assigns = []
-        is_br = False
-        for instruction in v.block:
+        compared = None
+        for i, instruction in enumerate(v.block):
             if isinstance(instruction, IsTrueInstruction):
-                self.code += instruction.get_low_ir_branch(self.scalar_variables, v.output_vertexes, phi_assigns)
+                self.code += instruction.get_low_ir_branch(self.scalar_variables, v.output_vertexes, phi_assigns, compared)
                 phi_assigns = []
             elif isinstance(instruction, ReturnInstruction):
                 self.code += instruction.get_low_ir_return(self.scalar_variables, self.is_entry, self.func_type, used_xmm)
@@ -268,10 +268,17 @@ class ContextBuilder:
             elif isinstance(instruction, ArrayInitInstruction):
                 if not self.is_entry:
                     self.code += instruction.get_low_ir_arr_decl(self.array_adresses)
+            elif isinstance(instruction, BinaryAssign) and instruction.is_cmp():
+                if i == len(v.block) - 1:
+                    self.code += instruction.get_low_ir(self.scalar_variables)
+                elif isinstance(v.block[i + 1], IsTrueInstruction):
+                    code, compared = instruction.get_low_ir_cmp(self.scalar_variables)
+                    self.code += code
+                else:
+                    self.code += instruction.get_low_ir(self.scalar_variables)
             else:
                 self.code += instruction.get_low_ir(self.scalar_variables)
-        if not is_br:
-            self.code += phi_assigns
+        self.code += phi_assigns
         if len(v.output_vertexes) == 1:
             self.code.append(Jump(v.output_vertexes[0].label))
 
