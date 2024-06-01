@@ -6,7 +6,7 @@ import argparse
 
 def opt_pass(tree, j):
     changed = False
-    if j == 1:
+    if j <= 2:
         is_preheader = False
     else:
         is_preheader = True
@@ -20,7 +20,10 @@ def opt_pass(tree, j):
         # Выявление достигающих определений
         builder.contexts[func.name].graph.solve_rd()
         # Loop invariant_code_motion
-        changed = builder.contexts[func.name].loop_invariant_code_motion(is_preheader) or changed
+        if j > 1:
+            changed = builder.contexts[func.name].loop_invariant_code_motion(is_preheader) or changed
+        elif j == 1:
+            builder.contexts[func.name].tiling()
         # Построение дерева доминаторов
         builder.contexts[func.name].graph.dfs()
         builder.contexts[func.name].graph.build_dominators_tree()
@@ -39,7 +42,8 @@ def opt_pass(tree, j):
         # Dead code elimination
         changed = builder.contexts[func.name].dead_code_elimination() or changed
         # print(func.name, changed)
-
+    if j == 0:
+        changed = True
     if changed:
         for func in tree.funcDefs:
             builder.contexts[func.name].remove_ssa()
@@ -63,8 +67,8 @@ def generate_tests():
         changed = True
         j = 0
         while changed:
-            j += 1
             changed = opt_pass(tree, j)
+            j += 1
         print(f"Тест {i} завершился за {j} пассов")
         builder.set_labels()
         builder.print_graph(out_file)

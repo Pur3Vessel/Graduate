@@ -2,6 +2,12 @@ from graph import *
 from lattice import *
 import re
 from collections import Counter
+import numpy as np
+
+
+tile_sizes1 = [3, 3]
+tile_sizes2 = [3, 3, 3]
+
 
 
 class Context:
@@ -900,6 +906,34 @@ class Context:
             inds.append(value)
         return array_name, inds
 
+    def analyze_dep(self, u, v, gran):
+        n_dims = len(u)
+        for i in range(n_dims):
+            low = gran[i][0] if isinstance(gran[i][0], int) else 0
+            if isinstance(gran[i][1], int):
+                high = gran[i][1]
+            else:
+                continue
+            const = v[i] - u[i]
+            if (high - low) <= abs(const):
+                return None, None
+        distance = [a - b for a, b in zip(u, v)]
+        if not any(comp < 0 for comp in distance):
+            return None, None
+        carriers = []
+        potential_carriers = []
+        carriers.append(0)
+        for i in range(n_dims):
+            const = v[i] - u[i]
+            if const == 0:
+                potential_carriers.append(i + 1)
+                continue
+            elif const < 0:
+                carriers += potential_carriers
+                carriers.append(i + 1)
+            break
+        return distance, carriers
+
     def tiling_nest(self, nest):
         is_perfect, nest_body = self.is_perfect_nest(nest)
         if not is_perfect or len(nest_body) != 1:
@@ -918,7 +952,6 @@ class Context:
         print(loops_info)
         indexes = list(map(lambda x: x[0], loops_info))
         body_info = self.get_nest_body_info(nest_body[0], indexes)
-        print(body_info)
         if body_info is None:
             return
         array_gen = self.analyze_array_use(body_info[0], indexes[1:])
@@ -932,6 +965,48 @@ class Context:
             array_uses.append(array_use)
         print(array_gen)
         print(array_uses)
+        distances = []
+        indexes_gran = []
+        for info in loops_info[1:]:
+            indexes_gran.append((info[1], info[2]))
+        for use in array_uses:
+            if use[0] == array_gen[0]:
+                distance, carriers = self.analyze_dep(array_gen[1], use[1], indexes_gran)
+                if distance is not None:
+                    distances.append((distance, carriers))
+                distance, carriers = self.analyze_dep(use[1], array_gen[1], indexes_gran)
+                if distance is not None:
+                    distances.append((distance, carriers))
+        print(distances)
+        if len(distances) == 0:
+            self.rectangular_tiling(nest)
+        else:
+            self.skewed_tiling(nest, distances)
+
+    def rectangular_tiling(self, nest):
+        n_cycles = len(nest)
+        cycles = []
+
+
+    def get_skew_matrix(self, distances):
+        S = []
+        for distance in distances:
+            skew_matrix = np.eye(len(distances[0][0]) + 1, dtype=int)
+            vector, carriers = distance[0], distance[1]
+            for i, component in enumerate(vector):
+                if component < 0:
+                    for carrier in carriers:
+                        skew_matrix[i + 1][carrier] = abs(component)
+            S.append(skew_matrix)
+        result_skew_matrix = np.eye(len(distances[0][0]) + 1, dtype=int)
+        for i in range(len(distances[0][0]) + 1):
+            for j in range(len(distances[0][0]) + 1):
+                result_skew_matrix[i][j] = max(list(map(lambda x: x[i][j], S)))
+        return result_skew_matrix
+
+    def skewed_tiling(self, nest, distances):
+        skew_matrix = self.get_skew_matrix(distances)
+        print(skew_matrix)
 
     def tiling(self):
         loop_nests = self.graph.find_loop_nests()
