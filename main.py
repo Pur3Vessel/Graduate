@@ -5,6 +5,7 @@ import argparse
 
 
 def opt_pass(tree, j):
+    print(j)
     changed = False
     if j <= 2:
         is_preheader = False
@@ -31,6 +32,8 @@ def opt_pass(tree, j):
         builder.contexts[func.name].graph.make_DF()
         # Расстановка phi функций
         builder.contexts[func.name].place_phi()
+        if j == 1 and func.name == "multiply":
+            builder.print_graph("out.txt")
         # Переименовывание переменных
         builder.contexts[func.name].change_numeration()
         # Constant_propagation
@@ -38,8 +41,8 @@ def opt_pass(tree, j):
         # print(func.name, changed)
         # Copy_propagation
         changed = builder.contexts[func.name].copy_propagation() or changed
-        # print(func.name, changed)
         # Dead code elimination
+        # print(func.name, changed)
         changed = builder.contexts[func.name].dead_code_elimination() or changed
         # print(func.name, changed)
     if j == 0:
@@ -47,7 +50,6 @@ def opt_pass(tree, j):
     if changed:
         for func in tree.funcDefs:
             builder.contexts[func.name].remove_ssa()
-
     return changed
 
 

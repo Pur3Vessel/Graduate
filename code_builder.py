@@ -188,13 +188,13 @@ class ContextBuilder:
         for param in array_params:
             self.array_adresses[param[0]] = (param[1], True, param[2])
 
-        #if self.i == 3:
-        #    for var, label in self.scalar_variables.items():
-        #        print(var, label)
-        #    print("=========")
-        #    for var, label in self.array_adresses.items():
-        #        print(var, label)
-        #    print("-------------")
+        if self.i == 2:
+            for var, label in self.scalar_variables.items():
+                print(var, label)
+            print("=========")
+            for var, label in self.array_adresses.items():
+                print(var, label)
+            print("-------------")
 
     def get_entry_info(self):
         if self.is_entry:

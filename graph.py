@@ -75,8 +75,8 @@ class Vertex:
                     file.write("\t" + str(self.number) + "->" + str(elem.number) + "[label=\"N\"]" + "\n")
             else:
                 file.write("\t" + str(self.number) + "->" + str(elem.number) + "\n")
-        for elem in self.children:
-            file.write("\t" + str(self.number) + "->" + str(elem.number) + " [color = green]")
+        #for elem in self.children:
+        #    file.write("\t" + str(self.number) + "->" + str(elem.number) + " [color = green]")
 
     def to_graph_rd(self, file, graph):
         file.write("\t" + str(self.number) + "[label=\"\n")

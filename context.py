@@ -1,13 +1,10 @@
 from graph import *
 from lattice import *
 import re
-from collections import Counter
 import numpy as np
 
-
-tile_sizes1 = [3, 3]
-tile_sizes2 = [3, 3, 3]
-
+tile_sizes1 = [2, 2]
+tile_sizes2 = [2, 2, 2]
 
 
 class Context:
@@ -21,9 +18,14 @@ class Context:
         self.after_blocks = []
         self.contexts = {}
         self.labels_to_live = {}
+        self.tmp_version = -1
 
     def set_contexts(self, contexts):
         self.contexts = contexts
+
+    def get_tmp(self):
+        self.tmp_version += 1
+        return "tmp$" + str(self.tmp_version)
 
     @staticmethod
     def which_pred(v1, v):
@@ -279,6 +281,7 @@ class Context:
             if len(flowWL) != 0:
                 e = flowWL.pop()
                 # print("flow", e[1].block[0])
+                # print(e[0].number, e[1].number)
                 if not exec_flag[e]:
                     exec_flag[e] = True
                     if len(e[1].block) == 0 and len(e[1].output_vertexes) != 0:
@@ -301,7 +304,6 @@ class Context:
     def edge_count(self, v, exec_flag):
         i = 0
         for in_v in v.input_vertexes:
-            # print(in_v.number, v.number)
             if exec_flag[(in_v, v)]:
                 i += 1
         return i
@@ -730,6 +732,45 @@ class Context:
                 right = str(exp.right)
             return left + exp.op + right
 
+    def get_full_exp_instr(self, exp, block):
+        if isinstance(exp, AtomicAssign):
+            if isinstance(exp.argument, (IntConstantOperand, FloatConstantOperand)):
+                return [exp.argument]
+            if "$" in exp.argument.value:
+                for instr in block:
+                    if instr.value == exp.argument.value:
+                        return [exp.argument] + self.get_full_exp(instr, block)
+            else:
+                return [exp.argument]
+        if isinstance(exp, UnaryAssign):
+            if isinstance(exp.arg, (IntConstantOperand, FloatConstantOperand)):
+                return [exp]
+            if "$" in exp.arg.value:
+                for instr in block:
+                    if instr.value == exp.arg.value:
+                        return [exp] + self.get_full_exp(instr, block)
+            else:
+                return [exp]
+        if isinstance(exp, BinaryAssign):
+            left, right = [], []
+            if isinstance(exp.left, (IntConstantOperand, FloatConstantOperand)):
+                left = []
+            elif "$" in exp.left.value:
+                for instr in block:
+                    if instr.value == exp.left:
+                        left = self.get_full_exp(instr, block)
+            else:
+                left = []
+            if isinstance(exp.right, (IntConstantOperand, FloatConstantOperand)):
+                right = []
+            elif "$" in exp.right.value:
+                for instr in block:
+                    if instr.value == exp.right.value:
+                        right = self.get_full_exp(instr, block)
+            else:
+                right = []
+            return [exp] + left + right
+
     def get_full_array_exp(self, exp, block, indexes):
         if isinstance(exp, AtomicAssign):
             if not isinstance(exp.argument, ArrayUseOperand):
@@ -793,6 +834,19 @@ class Context:
                 else:
                     right = []
             return left + right
+
+    def get_cycle_blocks(self, cycle):
+        latch = cycle[0]
+        header = cycle[1]
+        enter = None
+        for v in header.input_vertexes:
+            if v != latch:
+                enter = v
+        after = None
+        for v in latch.output_vertexes:
+            if v != header:
+                after = v
+        return enter, after
 
     def get_cycle_index_info(self, cycle):
         latch = cycle[0]
@@ -979,14 +1033,144 @@ class Context:
                     distances.append((distance, carriers))
         print(distances)
         if len(distances) == 0:
-            self.rectangular_tiling(nest)
+            self.rectangular_tiling(nest, indexes)
         else:
-            self.skewed_tiling(nest, distances)
+            self.skewed_tiling(nest, indexes, distances)
 
-    def rectangular_tiling(self, nest):
+    def rectangular_tiling(self, nest, indexes):
         n_cycles = len(nest)
-        cycles = []
+        if n_cycles == 2:
+            tile_sizes = tile_sizes1
+        else:
+            tile_sizes = tile_sizes2
+        cycles_pairs = []
+        enter_all, after_all = self.get_cycle_blocks(nest[0])
+        self.graph.vertexes.remove(enter_all)
+        enter_all = enter_all.input_vertexes[0]
+        body = Vertex.init_empty_vertex()
+        body.block = nest[-1][2].block
+        for i in range(n_cycles):
+            d = tile_sizes[i]
+            latch = nest[i][0]
+            enter, after = self.get_cycle_blocks(nest[i])
+            start = None
+            for instruction in enter.block[::-1]:
+                if isinstance(instruction, AtomicAssign) and instruction.value == indexes[i]:
+                    start = self.get_full_exp_instr(instruction, enter.block)
+            cmp = latch.block[-2]
+            end = None
+            if isinstance(cmp.right, IdOperand) and "$" in cmp.right.value:
+                for instr in latch.block:
+                    if instr.value == cmp.right.value:
+                        end = self.get_full_exp_instr(instr, latch.block)
+                        break
+            else:
+                end = [cmp.right]
+            cycle_enter = Vertex.init_empty_vertex()
+            cycle_enter.block += start[1:]
+            cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!0", start[0], None))
+            cycle_enter.block += end[1:]
+            cmp_name = self.get_tmp()
+            cycle_enter.block.append(
+                BinaryAssign('int', cmp_name, "div", end[0], IntConstantOperand(d), None, 'int', 'int'))
+            br_name = self.get_tmp()
+            cycle_enter.block.append(
+                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!0"), IdOperand(cmp_name), None, 'int',
+                             'int'))
+            cycle_enter.block.append(IsTrueInstruction(IdOperand(br_name)))
+            header_block = Vertex.init_empty_vertex()
+            cycle_enter.add_output_connector(header_block)
+            header_block.add_input_connector(cycle_enter)
+            latch_block = Vertex.init_empty_vertex()
+            latch_block.block.append(
+                BinaryAssign('int', indexes[i] + "!0", "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1), None,
+                             'int', 'int'))
+            latch_block.block += end[1:]
+            cmp_name = self.get_tmp()
+            latch_block.block.append(
+                BinaryAssign('int', cmp_name, "div", end[0], IntConstantOperand(d), None, 'int', 'int'))
+            br_name = self.get_tmp()
+            latch_block.block.append(
+                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!0"), IdOperand(cmp_name), None, 'int',
+                             'int'))
+            latch_block.block.append(IsTrueInstruction(IdOperand(br_name)))
+            latch_block.add_output_connector(header_block)
+            header_block.add_input_connector(latch_block)
+            cycle1 = (cycle_enter, header_block, latch_block)
 
+            cycle_enter = Vertex.init_empty_vertex()
+            init_tmp = self.get_tmp()
+            cycle_enter.block.append(
+                BinaryAssign('int', init_tmp, '*', IdOperand(indexes[i] + "!0"), IntConstantOperand(d), None, 'int',
+                             'int'))
+            cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!1", IdOperand(init_tmp), None))
+            add_name = self.get_tmp()
+            cycle_enter.block.append(
+                BinaryAssign('int', add_name, "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1), None, 'int',
+                             'int'))
+            mul_name = self.get_tmp()
+            cycle_enter.block.append(
+                BinaryAssign('int', mul_name, '*', IdOperand(add_name), IntConstantOperand(d), None, 'int', 'int'))
+            br_name = self.get_tmp()
+            cycle_enter.block.append(
+                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), IdOperand(mul_name), None, 'int',
+                             'int'))
+            cycle_enter.block.append(IsTrueInstruction(IdOperand(br_name)))
+            header_block = Vertex.init_empty_vertex()
+            cycle_enter.add_output_connector(header_block)
+            header_block.add_input_connector(cycle_enter)
+            latch_block = Vertex.init_empty_vertex()
+            latch_block.block.append(
+                BinaryAssign('int', indexes[i] + "!1", "+", IdOperand(indexes[i] + "!1"), IntConstantOperand(1), None,
+                             'int', 'int'))
+            add_name = self.get_tmp()
+            latch_block.block.append(
+                BinaryAssign('int', add_name, "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1), None, 'int',
+                             'int'))
+            mul_name = self.get_tmp()
+            latch_block.block.append(
+                BinaryAssign('int', mul_name, '*', IdOperand(add_name), IntConstantOperand(d), None, 'int', 'int'))
+            br_name = self.get_tmp()
+            latch_block.block.append(
+                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), IdOperand(mul_name), None, 'int',
+                             'int'))
+            latch_block.block.append(IsTrueInstruction(IdOperand(br_name)))
+            latch_block.add_output_connector(header_block)
+            header_block.add_input_connector(latch_block)
+            cycle2 = (cycle_enter, header_block, latch_block)
+            cycles_pairs.append((cycle1, cycle2))
+
+        one = [a for a, b, in cycles_pairs]
+        two = [b for a, b in cycles_pairs]
+        cycles_pairs = one + two
+        for vertex in nest[0]:
+            self.graph.vertexes.remove(vertex)
+        enter_all.output_vertexes = []
+        after_all.input_vertexes = []
+        enter, after = enter_all, after_all
+        for i, cycle in enumerate(cycles_pairs):
+            for elem in cycle:
+                self.graph.vertexes.append(elem)
+            cycle[0].add_input_connector(enter)
+            enter.add_output_connector(cycle[0])
+            cycle[0].add_output_connector(after)
+            after.add_input_connector(cycle[0])
+            cycle[2].add_output_connector(after)
+            after.add_input_connector(cycle[2])
+            enter = cycle[1]
+            after = cycle[2]
+            if i == len(cycles_pairs) - 1:
+                cycle[1].add_output_connector(body)
+                body.add_input_connector(cycle[1])
+                body.add_output_connector(cycle[2])
+                cycle[2].add_input_connector(body)
+                self.graph.vertexes.append(body)
+        for index in indexes:
+            self.names.remove((index, "int"))
+            self.names.add((index + "!0", "int"))
+            self.names.add((index + "!1", "int"))
+            self.replace_name(body, index, index + "!1")
+        print("tiled")
 
     def get_skew_matrix(self, distances):
         S = []
@@ -1004,7 +1188,7 @@ class Context:
                 result_skew_matrix[i][j] = max(list(map(lambda x: x[i][j], S)))
         return result_skew_matrix
 
-    def skewed_tiling(self, nest, distances):
+    def skewed_tiling(self, nest, indexes, distances):
         skew_matrix = self.get_skew_matrix(distances)
         print(skew_matrix)
 
@@ -1012,3 +1196,7 @@ class Context:
         loop_nests = self.graph.find_loop_nests()
         for nest in loop_nests:
             self.tiling_nest(nest)
+
+    def replace_name(self, block, old, new):
+        for instruction in block.block:
+            instruction.replace_operand(old, new)

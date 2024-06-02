@@ -596,7 +596,7 @@ class BinaryAssign(IR):
 
         exp = str(op1) + " " + self.op + " " + str(op2)
         # print(exp)
-        return eval(exp)
+        return eval(exp.replace('div', '//').replace('mod', '%'))
 
     def place_constants(self, lattice):
         changed = False

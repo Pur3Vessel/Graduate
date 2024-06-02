@@ -846,6 +846,7 @@ class ForAction(Action):
 
     def generate(self):
         global tmp_version
+        builder.create_block()
         current = builder.current_block()
 
         after_block = builder.create_block_without()
@@ -1060,3 +1061,4 @@ class Entry:
             tmp_version = 0
             builder.add_context(func.name)
             func.generate()
+            builder.contexts[func.name].tmp_version = tmp_version - 1
