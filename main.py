@@ -25,6 +25,8 @@ def opt_pass(tree, j):
             changed = builder.contexts[func.name].loop_invariant_code_motion(is_preheader) or changed
         elif j == 1:
             builder.contexts[func.name].tiling()
+            if j == 1 and func.name == "multiply":
+                builder.print_graph("out.txt")
         # Построение дерева доминаторов
         builder.contexts[func.name].graph.dfs()
         builder.contexts[func.name].graph.build_dominators_tree()
@@ -32,8 +34,6 @@ def opt_pass(tree, j):
         builder.contexts[func.name].graph.make_DF()
         # Расстановка phi функций
         builder.contexts[func.name].place_phi()
-        if j == 1 and func.name == "multiply":
-            builder.print_graph("out.txt")
         # Переименовывание переменных
         builder.contexts[func.name].change_numeration()
         # Constant_propagation
@@ -54,7 +54,7 @@ def opt_pass(tree, j):
 
 
 def generate_tests():
-    n_tests = 7
+    n_tests = 8
     for i in range(1, n_tests + 1):
         builder.contexts = {}
         test_file = f"tests/test{i}.txt"
@@ -99,7 +99,7 @@ def generate_file(filename):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("filename",nargs="?", default=None)
+    parser.add_argument("filename", nargs="?", default=None)
     args = parser.parse_args()
     if args.filename:
         generate_file(args.filename)

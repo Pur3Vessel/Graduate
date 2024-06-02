@@ -41,6 +41,9 @@ class Vertex:
         self.inB = set()
         self.outB = set()
 
+    def replace_number(self):
+        self.number = generate_unique_number()
+
     @staticmethod
     def init_empty_vertex():
         return Vertex([], [], [])
@@ -75,7 +78,7 @@ class Vertex:
                     file.write("\t" + str(self.number) + "->" + str(elem.number) + "[label=\"N\"]" + "\n")
             else:
                 file.write("\t" + str(self.number) + "->" + str(elem.number) + "\n")
-        #for elem in self.children:
+        # for elem in self.children:
         #    file.write("\t" + str(self.number) + "->" + str(elem.number) + " [color = green]")
 
     def to_graph_rd(self, file, graph):

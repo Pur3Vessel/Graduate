@@ -7,6 +7,29 @@ tile_sizes1 = [2, 2]
 tile_sizes2 = [2, 2, 2]
 
 
+def get_cycle_copy(cycle):
+    new_cycle = []
+    for v in cycle:
+        new_v = deepcopy(v)
+        new_v.replace_number()
+        new_cycle.append(new_v)
+    header = new_cycle[1]
+    enter = new_cycle[0]
+    latch = new_cycle[2]
+
+    enter.input_vertexes = []
+    header.input_vertexes = []
+    latch.input_vertexes = []
+    enter.output_vertexes = []
+    header.output_vertexes = []
+    latch.output_vertexes = []
+    enter.add_output_connector(header)
+    header.add_input_connector(enter)
+    latch.add_output_connector(header)
+    header.add_input_connector(latch)
+    return new_cycle
+
+
 class Context:
     def __init__(self):
         self.count = 0
@@ -1003,7 +1026,6 @@ class Context:
             loops_info.append(info)
             if info is None:
                 return
-        print(loops_info)
         indexes = list(map(lambda x: x[0], loops_info))
         body_info = self.get_nest_body_info(nest_body[0], indexes)
         if body_info is None:
@@ -1017,8 +1039,6 @@ class Context:
             if array_use is None:
                 return None
             array_uses.append(array_use)
-        print(array_gen)
-        print(array_uses)
         distances = []
         indexes_gran = []
         for info in loops_info[1:]:
@@ -1031,7 +1051,6 @@ class Context:
                 distance, carriers = self.analyze_dep(use[1], array_gen[1], indexes_gran)
                 if distance is not None:
                     distances.append((distance, carriers))
-        print(distances)
         if len(distances) == 0:
             self.rectangular_tiling(nest, indexes)
         else:
@@ -1044,6 +1063,8 @@ class Context:
         else:
             tile_sizes = tile_sizes2
         cycles_pairs = []
+        cycles_orig = []
+        cycles_ost = []
         enter_all, after_all = self.get_cycle_blocks(nest[0])
         self.graph.vertexes.remove(enter_all)
         enter_all = enter_all.input_vertexes[0]
@@ -1140,14 +1161,61 @@ class Context:
             cycle2 = (cycle_enter, header_block, latch_block)
             cycles_pairs.append((cycle1, cycle2))
 
+            cycle_enter = Vertex.init_empty_vertex()
+            cycle_enter.block += end[1:]
+            div_name = self.get_tmp()
+            cycle_enter.block.append(
+                BinaryAssign('int', div_name, "div", end[0], IntConstantOperand(d), None, 'int', 'int'))
+            mul_name = self.get_tmp()
+            cycle_enter.block.append(
+                BinaryAssign('int', mul_name, '*', IdOperand(mul_name), IntConstantOperand(d), None, 'int', 'int'))
+            cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!1", mul_name, None))
+            br_name = self.get_tmp()
+            cycle_enter.block.append(
+                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), end[0], None, 'int', 'int'))
+            cycle_enter.block.append(IsTrueInstruction(IdOperand(br_name)))
+            header_block = Vertex.init_empty_vertex()
+            cycle_enter.add_output_connector(header_block)
+            header_block.add_input_connector(cycle_enter)
+            latch_block = Vertex.init_empty_vertex()
+            latch_block.block.append(
+                BinaryAssign('int', indexes[i] + "!1", "+", IdOperand(indexes[i] + "!1"), IntConstantOperand(1), None,
+                             'int', 'int'))
+            latch_block.block += end[1:]
+            br_name = self.get_tmp()
+            latch_block.block.append(
+                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), end[0], None, 'int', 'int'))
+            latch_block.block.append(IsTrueInstruction(IdOperand(br_name)))
+            latch_block.add_output_connector(header_block)
+            header_block.add_input_connector(latch_block)
+            cycles_ost.append((cycle_enter, header_block, latch_block))
+
+            header = nest[i][1]
+            self.replace_name(enter, indexes[i], indexes[i] + "!1")
+            self.replace_name(latch, indexes[i], indexes[i] + "!1")
+            cycles_orig.append((enter, header, latch))
+
+        for index in indexes:
+            self.names.remove((index, "int"))
+            self.names.add((index + "!0", "int"))
+            self.names.add((index + "!1", "int"))
+            self.replace_name(body, index, index + "!1")
+        cycles_pairs_copy = deepcopy(cycles_pairs)
         one = [a for a, b, in cycles_pairs]
         two = [b for a, b in cycles_pairs]
         cycles_pairs = one + two
+        mid = len(cycles_pairs) // 2
+        last = cycles_pairs[-1]
+        for i in range(len(cycles_pairs) - 1, mid, -1):
+            cycles_pairs[i] = cycles_pairs[i - 1]
+        cycles_pairs[mid] = last
         for vertex in nest[0]:
             self.graph.vertexes.remove(vertex)
         enter_all.output_vertexes = []
         after_all.input_vertexes = []
-        enter, after = enter_all, after_all
+        enter, after = enter_all, cycles_ost[0][0]
+        body_copy = deepcopy(body)
+        body_copy.replace_number()
         for i, cycle in enumerate(cycles_pairs):
             for elem in cycle:
                 self.graph.vertexes.append(elem)
@@ -1165,12 +1233,52 @@ class Context:
                 body.add_output_connector(cycle[2])
                 cycle[2].add_input_connector(body)
                 self.graph.vertexes.append(body)
-        for index in indexes:
-            self.names.remove((index, "int"))
-            self.names.add((index + "!0", "int"))
-            self.names.add((index + "!1", "int"))
-            self.replace_name(body, index, index + "!1")
-        print("tiled")
+
+        for i in range(len(cycles_orig)):
+            self.replace_name(cycles_orig[i][0], indexes[i], indexes[i] + "!1")
+            self.replace_name(cycles_orig[i][2], indexes[i], indexes[i] + "!1")
+        orig_copies = []
+        for orig in cycles_orig:
+            orig_copies.append(get_cycle_copy(orig))
+
+        for i, cycle_ost in enumerate(cycles_ost):
+            body = deepcopy(body_copy)
+            body.replace_number()
+            cyc = []
+            for j in range(0, i):
+                cyc.append(orig_copies[j])
+            orig_copies = []
+            for orig in cycles_orig:
+                orig_copies.append(get_cycle_copy(orig))
+            cyc.append(cycle_ost)
+            cycles_pairs_slice = cycles_pairs_copy[i + 1:]
+            one = [a for a, b, in cycles_pairs_slice]
+            two = [b for a, b in cycles_pairs_slice]
+            cycles_pairs_slice = one + two
+            for c in cycles_pairs_slice:
+                cyc.append(get_cycle_copy(c))
+            if i != len(cycles_ost) - 1:
+                after = orig_copies[0][0]
+            else:
+                after = after_all
+            for j, cycle in enumerate(cyc):
+                for elem in cycle:
+                    self.graph.vertexes.append(elem)
+                if j > 0:
+                    cycle[0].add_input_connector(enter)
+                    enter.add_output_connector(cycle[0])
+                cycle[0].add_output_connector(after)
+                after.add_input_connector(cycle[0])
+                cycle[2].add_output_connector(after)
+                after.add_input_connector(cycle[2])
+                enter = cycle[1]
+                after = cycle[2]
+                if j == len(cyc) - 1:
+                    cycle[1].add_output_connector(body)
+                    body.add_input_connector(cycle[1])
+                    body.add_output_connector(cycle[2])
+                    cycle[2].add_input_connector(body)
+                    self.graph.vertexes.append(body)
 
     def get_skew_matrix(self, distances):
         S = []
@@ -1190,7 +1298,6 @@ class Context:
 
     def skewed_tiling(self, nest, indexes, distances):
         skew_matrix = self.get_skew_matrix(distances)
-        print(skew_matrix)
 
     def tiling(self):
         loop_nests = self.graph.find_loop_nests()
@@ -1200,3 +1307,5 @@ class Context:
     def replace_name(self, block, old, new):
         for instruction in block.block:
             instruction.replace_operand(old, new)
+            if instruction.value == old:
+                instruction.value = new
