@@ -186,6 +186,15 @@ class ArrayUseOperand(Operand):
                 new_args.append(arg)
         self.indexing = new_args
 
+    def replace_tmp(self, version):
+        for i, arg in enumerate(self.indexing):
+            if isinstance(arg, IdOperand) and len(arg.value.split("$")) > 1:
+                version = version + 1
+                new_tmp = "tmp$" + str(version)
+                self.indexing[i] = IdOperand(new_tmp)
+
+        return version
+
     def rename_operands(self, name, version):
         new_args = []
         for arg in self.indexing:
@@ -249,6 +258,15 @@ class FuncCallOperand(Operand):
             else:
                 new_args.append(arg)
         self.args = new_args
+
+    def replace_tmp(self, version):
+        for i, arg in enumerate(self.args):
+            if isinstance(arg, IdOperand) and len(arg.value.split("$")) > 1:
+                version = version + 1
+                new_tmp = "tmp$" + str(version)
+                self.args[i] = IdOperand(new_tmp)
+
+        return version
 
     def rename_operands(self, name, version):
         new_args = []

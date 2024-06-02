@@ -4,30 +4,10 @@ import re
 import numpy as np
 
 tile_sizes1 = [2, 2]
-tile_sizes2 = [2, 2, 2]
+tile_sizes2 = [25, 32, 32]
 
 
-def get_cycle_copy(cycle):
-    new_cycle = []
-    for v in cycle:
-        new_v = deepcopy(v)
-        new_v.replace_number()
-        new_cycle.append(new_v)
-    header = new_cycle[1]
-    enter = new_cycle[0]
-    latch = new_cycle[2]
 
-    enter.input_vertexes = []
-    header.input_vertexes = []
-    latch.input_vertexes = []
-    enter.output_vertexes = []
-    header.output_vertexes = []
-    latch.output_vertexes = []
-    enter.add_output_connector(header)
-    header.add_input_connector(enter)
-    latch.add_output_connector(header)
-    header.add_input_connector(latch)
-    return new_cycle
 
 
 class Context:
@@ -104,6 +84,39 @@ class Context:
                 phi_args = list(map(lambda x: IdOperand(x), phi_args))
                 phi_expr = PhiAssign(name[1], name[0], phi_args)
                 place.insert_head(phi_expr)
+
+    def replace_tmp(self, block):
+        for instruction in block.block:
+            new_version, old_tmp, new_tmp = instruction.replace_tmp(self.tmp_version)
+            if new_version != self.tmp_version:
+                for instruction in block.block:
+                    instruction.replace_operand(old_tmp, new_tmp)
+                self.tmp_version = new_version
+
+    def get_cycle_copy(self, cycle):
+        new_cycle = []
+        for v in cycle:
+            new_v = deepcopy(v)
+            new_v.replace_number()
+            new_cycle.append(new_v)
+        header = new_cycle[1]
+        enter = new_cycle[0]
+        latch = new_cycle[2]
+
+        self.replace_tmp(enter)
+        self.replace_tmp(latch)
+
+        enter.input_vertexes = []
+        header.input_vertexes = []
+        latch.input_vertexes = []
+        enter.output_vertexes = []
+        header.output_vertexes = []
+        latch.output_vertexes = []
+        enter.add_output_connector(header)
+        header.add_input_connector(enter)
+        latch.add_output_connector(header)
+        header.add_input_connector(latch)
+        return new_cycle
 
     def loop_invariant_code_motion(self, is_preheader):
         # for v in self.graph.vertexes:
@@ -1065,9 +1078,9 @@ class Context:
         cycles_pairs = []
         cycles_orig = []
         cycles_ost = []
-        enter_all, after_all = self.get_cycle_blocks(nest[0])
-        self.graph.vertexes.remove(enter_all)
-        enter_all = enter_all.input_vertexes[0]
+        enter_al, after_all = self.get_cycle_blocks(nest[0])
+        enter_all = enter_al.input_vertexes[0]
+        self.graph.vertexes.remove(enter_al)
         body = Vertex.init_empty_vertex()
         body.block = nest[-1][2].block
         for i in range(n_cycles):
@@ -1168,8 +1181,8 @@ class Context:
                 BinaryAssign('int', div_name, "div", end[0], IntConstantOperand(d), None, 'int', 'int'))
             mul_name = self.get_tmp()
             cycle_enter.block.append(
-                BinaryAssign('int', mul_name, '*', IdOperand(mul_name), IntConstantOperand(d), None, 'int', 'int'))
-            cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!1", mul_name, None))
+                BinaryAssign('int', mul_name, '*', IdOperand(div_name), IntConstantOperand(d), None, 'int', 'int'))
+            cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!1", IdOperand(mul_name), None))
             br_name = self.get_tmp()
             cycle_enter.block.append(
                 BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), end[0], None, 'int', 'int'))
@@ -1211,7 +1224,11 @@ class Context:
         cycles_pairs[mid] = last
         for vertex in nest[0]:
             self.graph.vertexes.remove(vertex)
-        enter_all.output_vertexes = []
+        enter_all_out = []
+        for out in enter_all.output_vertexes:
+            if out.number != enter_al.number:
+                enter_all_out.append(out)
+        enter_all.output_vertexes = enter_all_out
         after_all.input_vertexes = []
         enter, after = enter_all, cycles_ost[0][0]
         body_copy = deepcopy(body)
@@ -1234,29 +1251,27 @@ class Context:
                 cycle[2].add_input_connector(body)
                 self.graph.vertexes.append(body)
 
-        for i in range(len(cycles_orig)):
-            self.replace_name(cycles_orig[i][0], indexes[i], indexes[i] + "!1")
-            self.replace_name(cycles_orig[i][2], indexes[i], indexes[i] + "!1")
         orig_copies = []
         for orig in cycles_orig:
-            orig_copies.append(get_cycle_copy(orig))
+            orig_copies.append(self.get_cycle_copy(orig))
 
         for i, cycle_ost in enumerate(cycles_ost):
             body = deepcopy(body_copy)
             body.replace_number()
+            self.replace_tmp(body)
             cyc = []
             for j in range(0, i):
                 cyc.append(orig_copies[j])
             orig_copies = []
             for orig in cycles_orig:
-                orig_copies.append(get_cycle_copy(orig))
+                orig_copies.append(self.get_cycle_copy(orig))
             cyc.append(cycle_ost)
             cycles_pairs_slice = cycles_pairs_copy[i + 1:]
             one = [a for a, b, in cycles_pairs_slice]
             two = [b for a, b in cycles_pairs_slice]
             cycles_pairs_slice = one + two
             for c in cycles_pairs_slice:
-                cyc.append(get_cycle_copy(c))
+                cyc.append(self.get_cycle_copy(c))
             if i != len(cycles_ost) - 1:
                 after = orig_copies[0][0]
             else:
@@ -1267,8 +1282,9 @@ class Context:
                 if j > 0:
                     cycle[0].add_input_connector(enter)
                     enter.add_output_connector(cycle[0])
-                cycle[0].add_output_connector(after)
-                after.add_input_connector(cycle[0])
+                if isinstance(cycle[0].block[-1], IsTrueInstruction):
+                    cycle[0].add_output_connector(after)
+                    after.add_input_connector(cycle[0])
                 cycle[2].add_output_connector(after)
                 after.add_input_connector(cycle[2])
                 enter = cycle[1]

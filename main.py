@@ -5,7 +5,6 @@ import argparse
 
 
 def opt_pass(tree, j):
-    print(j)
     changed = False
     if j <= 2:
         is_preheader = False
@@ -25,8 +24,6 @@ def opt_pass(tree, j):
             changed = builder.contexts[func.name].loop_invariant_code_motion(is_preheader) or changed
         elif j == 1:
             builder.contexts[func.name].tiling()
-            if j == 1 and func.name == "multiply":
-                builder.print_graph("out.txt")
         # Построение дерева доминаторов
         builder.contexts[func.name].graph.dfs()
         builder.contexts[func.name].graph.build_dominators_tree()
@@ -54,7 +51,7 @@ def opt_pass(tree, j):
 
 
 def generate_tests():
-    n_tests = 8
+    n_tests = 7
     for i in range(1, n_tests + 1):
         builder.contexts = {}
         test_file = f"tests/test{i}.txt"

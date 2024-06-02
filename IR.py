@@ -260,6 +260,8 @@ class AtomicAssign(IR):
             return False
         if isinstance(self.argument, FuncCallOperand) or isinstance(self.argument, ArrayUseOperand):
             return self.argument.is_use_op(value)
+        if isinstance(self.argument, str):
+            print(self.argument)
         return self.argument.value == value
 
     def lat_eval(self, lattice):
@@ -328,6 +330,15 @@ class AtomicAssign(IR):
                     else:
                         new_dims.append(d)
                 self.dimentions = new_dims
+
+    def replace_tmp(self, version):
+        if len(self.value.split("$")) > 1:
+            version = version + 1
+            new_tmp = "tmp$" + str(version)
+            old = self.value
+            self.value = new_tmp
+            return version, old, new_tmp
+        return version, None, None
 
     def get_low_ir_arr(self, scalar_variables, array_adresses):
         code = []
@@ -487,6 +498,15 @@ class UnaryAssign(IR):
             self.dimentions = new_dims
         if self.arg.value == name:
             self.arg = IdOperand(new_name)
+
+    def replace_tmp(self, version):
+        if len(self.value.split("$")) > 1:
+            version = version + 1
+            new_tmp = "tmp$" + str(version)
+            old = self.value
+            self.value = new_tmp
+            return version, old, new_tmp
+        return version, None, None
 
     def get_low_ir(self, scalar_variables):
         code = []
@@ -700,6 +720,14 @@ class BinaryAssign(IR):
                     new_dims.append(d)
             self.dimentions = new_dims
 
+    def replace_tmp(self, version):
+        if len(self.value.split("$")) > 1:
+            version = version + 1
+            new_tmp = "tmp$" + str(version)
+            old = self.value
+            self.value = new_tmp
+            return version, old, new_tmp
+        return version, None, None
 
     def get_low_ir_cmp(self, scalar_variables):
         code = []
@@ -912,7 +940,7 @@ class BinaryAssign(IR):
                 right_reg = self.right.get_low_ir(scalar_variables)
                 dw = ""
                 if self.is_cmp() and left_reg not in regs and isinstance(self.right,
-                                                                        (IntConstantOperand, FloatConstantOperand)):
+                                                                         (IntConstantOperand, FloatConstantOperand)):
                     dw = " dword "
                 if self.op == "and":
                     code.append(Move("eax", left_reg))
@@ -1135,7 +1163,11 @@ class ReturnInstruction(IR):
             self.value = IdOperand(self.value.value.split("_")[0])
 
     def replace_operand(self, name, new_name):
-        self.value = IdOperand(new_name)
+        if self.value.value == name:
+            self.value = IdOperand(new_name)
+
+    def replace_tmp(self, version):
+        return version, None, None
 
     def get_low_ir_return(self, scalar_variables, is_entry, type, used_xmm):
         code = []
@@ -1176,6 +1208,7 @@ class IsTrueInstruction(IR):
 
     def rename_operands(self, name, version):
         if isinstance(self.value, IdOperand) and self.value.value == name:
+            print(name)
             self.value = IdOperand(self.value.value + "_" + version)
 
     def is_use_op(self, value):
@@ -1207,7 +1240,11 @@ class IsTrueInstruction(IR):
             self.value = IdOperand(self.value.value.split("_")[0])
 
     def replace_operand(self, name, new_name):
-        self.value = IdOperand(new_name)
+        if self.value.value == name:
+            self.value = IdOperand(new_name)
+
+    def replace_tmp(self, version):
+        return version, None, None
 
     def get_jump(self, compared, out):
         if compared == "==":

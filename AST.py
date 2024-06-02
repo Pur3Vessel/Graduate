@@ -469,7 +469,7 @@ class AssignAction(Action):
         self.assign.check(defined_funcs, scalar_args, array_args, decl_vars, decl_arrays)
         var_type = scalar_args[self.name] if self.name in scalar_args else decl_vars[self.name]
 
-        if self.assign.type != var_type:
+        if self.assign.type != var_type and not (isinstance(var_type, FloatType) and isinstance(self.assign.type, IntType)):
             raise SemanticError(self.pos, "Тип переменной не совпадает с типом выражения")
 
     def get_IR(self):
@@ -529,7 +529,7 @@ class ArrayAssignAction(Action):
             raise SemanticError(self.pos, "Переменная не объявлена")
         self.assign.check(defined_funcs, scalar_args, array_args, decl_vars, decl_arrays)
         array_type = array_args[self.name][0] if self.name in array_args else decl_arrays[self.name][0]
-        if self.assign.type != array_type:
+        if self.assign.type != array_type and not (isinstance(array_type, FloatType) and isinstance(self.assign.type, IntType)):
             raise SemanticError(self.pos, "Тип переменной не совпадает с типом выражения")
         n_dimentions = array_args[self.name][1] if self.name in array_args else decl_arrays[self.name][1]
         if n_dimentions != len(self.indexing):
