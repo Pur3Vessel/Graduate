@@ -208,12 +208,13 @@ class ArrayInitInstruction(IR):
 
 
 class AtomicAssign(IR):
-    def __init__(self, type, value, argument, dimentions):
+    def __init__(self, type, value, argument, dimentions, dimentions_variables):
         self.type = type
         self.value = value
         self.argument = argument
         self.dimentions = dimentions
         self.is_phi = False
+        self.dimentions_variables = dimentions_variables
 
     def __str__(self):
         d = ""
@@ -254,14 +255,16 @@ class AtomicAssign(IR):
             for d in self.dimentions:
                 if d.value == value:
                     return True
+            if self.dimentions_variables is not None:
+                for d in self.dimentions_variables[1:]:
+                    if d == value:
+                        return True
         if isinstance(self.argument, IntConstantOperand) or isinstance(self.argument,
                                                                        BoolConstantOperand) or isinstance(self.argument,
                                                                                                           FloatConstantOperand):
             return False
         if isinstance(self.argument, FuncCallOperand) or isinstance(self.argument, ArrayUseOperand):
             return self.argument.is_use_op(value)
-        if isinstance(self.argument, str):
-            print(self.argument)
         return self.argument.value == value
 
     def lat_eval(self, lattice):
@@ -665,13 +668,13 @@ class BinaryAssign(IR):
     def simplify(self):
         if self.op == "+":
             if isinstance(self.left, IntConstantOperand) and self.left.value == 0:
-                return AtomicAssign(self.type, self.value, self.right, self.dimentions)
+                return AtomicAssign(self.type, self.value, self.right, self.dimentions, None)
             if isinstance(self.right, IntConstantOperand) and self.right.value == 0:
-                return AtomicAssign(self.type, self.value, self.left, self.dimentions)
+                return AtomicAssign(self.type, self.value, self.left, self.dimentions, None)
 
         if self.op == "-":
             if isinstance(self.right, IntConstantOperand) and self.right.value == 0:
-                return AtomicAssign(self.type, self.value, self.left, self.dimentions)
+                return AtomicAssign(self.type, self.value, self.left, self.dimentions, None)
 
         if self.op == "div" or self.op == "mod":
             if isinstance(self.right, IntConstantOperand) and self.right.value == 0:
@@ -680,26 +683,26 @@ class BinaryAssign(IR):
         if self.op == "and":
             if isinstance(self.left, BoolConstantOperand):
                 if not self.left.value:
-                    return AtomicAssign(self.type, self.value, BoolConstantOperand(False), self.dimentions)
+                    return AtomicAssign(self.type, self.value, BoolConstantOperand(False), self.dimentions, None)
                 else:
-                    return AtomicAssign(self.type, self.value, self.right, self.dimentions)
+                    return AtomicAssign(self.type, self.value, self.right, self.dimentions,None)
             if isinstance(self.right, BoolConstantOperand):
                 if not self.right.value:
-                    return AtomicAssign(self.type, self.value, BoolConstantOperand(False), self.dimentions)
+                    return AtomicAssign(self.type, self.value, BoolConstantOperand(False), self.dimentions, None)
                 else:
-                    return AtomicAssign(self.type, self.value, self.left, self.dimentions)
+                    return AtomicAssign(self.type, self.value, self.left, self.dimentions, None)
 
         if self.op == "or":
             if isinstance(self.left, BoolConstantOperand):
                 if not self.left.value:
-                    return AtomicAssign(self.type, self.value, self.right, self.dimentions)
+                    return AtomicAssign(self.type, self.value, self.right, self.dimentions, None)
                 else:
-                    return AtomicAssign(self.type, self.value, BoolConstantOperand(True), self.dimentions)
+                    return AtomicAssign(self.type, self.value, BoolConstantOperand(True), self.dimentions, None)
             if isinstance(self.right, BoolConstantOperand):
                 if not self.right.value:
-                    return AtomicAssign(self.type, self.value, self.left, self.dimentions)
+                    return AtomicAssign(self.type, self.value, self.left, self.dimentions, None)
                 else:
-                    return AtomicAssign(self.type, self.value, self.left, self.dimentions)
+                    return AtomicAssign(self.type, self.value, self.left, self.dimentions, None)
         return self
 
     def is_cmp(self):

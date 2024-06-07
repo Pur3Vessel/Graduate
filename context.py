@@ -684,8 +684,8 @@ class Context:
         for v in self.graph.vertexes:
             for instruction in v.block:
                 if isinstance(instruction, PhiAssign):
-                    assign1 = AtomicAssign(instruction.type, instruction.value, instruction.arguments[0], None)
-                    assign2 = AtomicAssign(instruction.type, instruction.value, instruction.arguments[1], None)
+                    assign1 = AtomicAssign(instruction.type, instruction.value, instruction.arguments[0], None, None)
+                    assign2 = AtomicAssign(instruction.type, instruction.value, instruction.arguments[1], None, None)
                     assign1.is_phi = True
                     assign2.is_phi = True
                     v1 = v.input_vertexes[0]
@@ -1102,7 +1102,7 @@ class Context:
                 end = [cmp.right]
             cycle_enter = Vertex.init_empty_vertex()
             cycle_enter.block += start[1:]
-            cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!0", start[0], None))
+            cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!0", start[0], None, None))
             cycle_enter.block += end[1:]
             cmp_name = self.get_tmp()
             cycle_enter.block.append(
@@ -1137,7 +1137,7 @@ class Context:
             cycle_enter.block.append(
                 BinaryAssign('int', init_tmp, '*', IdOperand(indexes[i] + "!0"), IntConstantOperand(d), None, 'int',
                              'int'))
-            cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!1", IdOperand(init_tmp), None))
+            cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!1", IdOperand(init_tmp), None, None))
             add_name = self.get_tmp()
             cycle_enter.block.append(
                 BinaryAssign('int', add_name, "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1), None, 'int',
@@ -1182,7 +1182,7 @@ class Context:
             mul_name = self.get_tmp()
             cycle_enter.block.append(
                 BinaryAssign('int', mul_name, '*', IdOperand(div_name), IntConstantOperand(d), None, 'int', 'int'))
-            cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!1", IdOperand(mul_name), None))
+            cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!1", IdOperand(mul_name), None, None))
             br_name = self.get_tmp()
             cycle_enter.block.append(
                 BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), end[0], None, 'int', 'int'))

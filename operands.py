@@ -133,9 +133,10 @@ class BoolConstantOperand(Operand):
 
 
 class ArrayUseOperand(Operand):
-    def __init__(self, name, indexing):
+    def __init__(self, name, indexing, dimention_variables):
         self.name = name
         self.indexing = indexing
+        self.dimention_variables = dimention_variables
 
     def __str__(self):
         s = self.name + "["
@@ -153,6 +154,10 @@ class ArrayUseOperand(Operand):
         is_use = False
         for arg in self.indexing:
             is_use = is_use or value == arg.value
+        if self.dimention_variables is not None:
+            for d in self.dimention_variables:
+                if d == value:
+                    return True
         return is_use
 
     def place_constants(self, lattice):

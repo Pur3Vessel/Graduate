@@ -82,7 +82,7 @@ def simplify_expression(expression):
                 new_indexes.append(new_idx)
             new_tmp = "tmp$" + str(tmp_version)
             tmp_version += 1
-            use = ArrayUse(expression.name, new_indexes, pe.Fragment(pe.Position(0), pe.Position(0)))
+            use = ArrayUse(expression.name, new_indexes, pe.Fragment(pe.Position(0), pe.Position(0)), expression.dimention_variables)
             use.type = expression.type
             new_assign = AssignAction(new_tmp, use, pe.Fragment(pe.Position(0), pe.Position(0)))
             new_assign.type = expression.type
@@ -308,11 +308,12 @@ class ArrayUse(Expression):
     name: str
     indexing: [Expression]
     pos: pe.Fragment
+    dimention_variables: list[str]
 
     @pe.ExAction
     def create(attrs, coords, res_coord):
         name, indexing = attrs
-        return ArrayUse(name, indexing, res_coord)
+        return ArrayUse(name, indexing, res_coord, [])
 
     def check(self, defined_funcs, scalar_args, array_args, decl_vars, decl_arrays):
         if self.name not in array_args and self.name not in decl_arrays:
@@ -327,6 +328,8 @@ class ArrayUse(Expression):
                 print(self.indexing[1].right.type)
                 raise SemanticError(self.pos, "Индекс массива не целое число")
         self.type = array_args[self.name][0] if self.name in array_args else decl_arrays[self.name][0]
+        dim_vars = array_args[self.name][2] if self.name in array_args else decl_arrays[self.name][2]
+        self.dimention_variables = dim_vars
 
 
 @dataclass
@@ -411,12 +414,12 @@ class VarDeclAction(Action):
         for init in self.varDeclInits:
             builder.context.names.add((init.name, str(self.type)))
             if isinstance(init.assign, EmptyExpression):
-                new_IR = AtomicAssign(type, init.name, IntConstantOperand(0), None)
+                new_IR = AtomicAssign(type, init.name, IntConstantOperand(0), None, None)
                 builder.add_expression(new_IR)
             else:
                 new_assigns, new_tmp = simplify_expression(init.assign)
                 place_assigns(new_assigns)
-                ass_IR = AtomicAssign(type, init.name, IdOperand(new_tmp), None)
+                ass_IR = AtomicAssign(type, init.name, IdOperand(new_tmp), None, None)
                 builder.add_expression(ass_IR)
 
 
@@ -444,7 +447,7 @@ class ArrayDeclAction(Action):
         if self.init is not None:
             if not check_dimentions(self.init, self.dimentions):
                 raise SemanticError(self.pos, "Некорректная инициализация массива")
-        decl_arrays[self.name] = (self.type, len(self.dimentions))
+        decl_arrays[self.name] = (self.type, len(self.dimentions), None)
 
     def generate(self):
         type = str(self.type)
@@ -467,6 +470,9 @@ class AssignAction(Action):
         if self.name not in scalar_args and self.name not in decl_vars:
             raise SemanticError(self.pos, "Переменная не объявлена")
         self.assign.check(defined_funcs, scalar_args, array_args, decl_vars, decl_arrays)
+        #print(self)
+        if isinstance(self.assign, ArrayUse):
+            print(self.assign.dimention_variables)
         var_type = scalar_args[self.name] if self.name in scalar_args else decl_vars[self.name]
 
         if self.assign.type != var_type and not (isinstance(var_type, FloatType) and isinstance(self.assign.type, IntType)):
@@ -477,24 +483,24 @@ class AssignAction(Action):
         value = self.name
         if is_atomic(self.assign):
             if isinstance(self.assign, IdUse):
-                return AtomicAssign(type, value, IdOperand(self.assign.name), None)
+                return AtomicAssign(type, value, IdOperand(self.assign.name), None, None)
             elif isinstance(self.assign, FuncCall):
                 args = []
                 for arg in self.assign.args:
                     args.append(IdOperand(arg.name))
-                return AtomicAssign(type, value, FuncCallOperand(self.assign.name, args), None)
+                return AtomicAssign(type, value, FuncCallOperand(self.assign.name, args), None, None)
             elif isinstance(self.assign, ArrayUse):
                 idx = []
                 for i in self.assign.indexing:
                     idx.append(IdOperand(i.name))
-                return AtomicAssign(type, value, ArrayUseOperand(self.assign.name, idx), None)
+                return AtomicAssign(type, value, ArrayUseOperand(self.assign.name, idx, self.assign.dimention_variables), None, None)
             elif isinstance(self.assign, BoolConst):
-                return AtomicAssign(type, value, BoolConstantOperand(self.assign.value), None)
+                return AtomicAssign(type, value, BoolConstantOperand(self.assign.value), None, None)
             elif isinstance(self.assign, NumConst):
                 if is_int(self.assign.value):
-                    return AtomicAssign(type, value, IntConstantOperand(self.assign.value), None)
+                    return AtomicAssign(type, value, IntConstantOperand(self.assign.value), None, None)
                 else:
-                    return AtomicAssign(type, value, FloatConstantOperand(self.assign.value), None)
+                    return AtomicAssign(type, value, FloatConstantOperand(self.assign.value), None, None)
             else:
                 print("что-то не так")
         elif isinstance(self.assign, BinOp):
@@ -508,7 +514,7 @@ class AssignAction(Action):
     def generate(self):
         new_assigns, new_tmp = simplify_expression(self.assign)
         place_assigns(new_assigns)
-        ass_IR = AtomicAssign(str(self.assign.type), self.name, IdOperand(new_tmp), None)
+        ass_IR = AtomicAssign(str(self.assign.type), self.name, IdOperand(new_tmp), None, None)
         builder.add_expression(ass_IR)
 
 
@@ -518,11 +524,12 @@ class ArrayAssignAction(Action):
     indexing: list[Expression]
     assign: Expression
     pos: pe.Fragment
+    dimention_vars: list[str]
 
     @pe.ExAction
     def create(attrs, coords, res_coord):
         name, indexing, assign = attrs
-        return ArrayAssignAction(name, indexing, assign, res_coord)
+        return ArrayAssignAction(name, indexing, assign, res_coord, [])
 
     def check(self, defined_funcs, scalar_args, array_args, decl_vars, decl_arrays, labels, is_loop, func_type):
         if self.name not in array_args and self.name not in decl_arrays:
@@ -538,6 +545,8 @@ class ArrayAssignAction(Action):
             dim.check(defined_funcs, scalar_args, array_args, decl_vars, decl_arrays)
             if not isinstance(dim.type, IntType):
                 raise SemanticError(self.pos, "Индексация не целым числом")
+        dim_vars = array_args[self.name][2] if self.name in array_args else decl_arrays[self.name][2]
+        self.dimentions_vars = dim_vars
 
     def generate(self):
         new_assigns, new_tmp = simplify_expression(self.assign)
@@ -547,7 +556,7 @@ class ArrayAssignAction(Action):
             new_idx_assigns, new_idx_tmp = simplify_expression(idx)
             place_assigns(new_idx_assigns)
             new_indexes.append(IdOperand(new_idx_tmp))
-        new_IR = AtomicAssign(str(self.assign.type), self.name, IdOperand(new_tmp), new_indexes)
+        new_IR = AtomicAssign(str(self.assign.type), self.name, IdOperand(new_tmp), new_indexes, self.dimentions_vars)
         builder.add_expression(new_IR)
 
 
@@ -856,7 +865,7 @@ class ForAction(Action):
 
         init_assigns, init_tmp = simplify_expression(self.start)
         place_assigns(init_assigns)
-        init_IR = AtomicAssign("int", self.var_name, IdOperand(init_tmp), None)
+        init_IR = AtomicAssign("int", self.var_name, IdOperand(init_tmp), None, None)
         builder.add_expression(init_IR)
         builder.context.names.add((self.var_name, "int"))
 
@@ -990,7 +999,7 @@ class FuncDef:
 
         scalar_args = dict([(arg.name, arg.type) for arg in self.args if len(arg.dimentions) == 0])
         array_args = dict(
-            [(arg.name, (arg.type, len(arg.dimentions))) for arg in self.args if len(arg.dimentions) != 0])
+            [(arg.name, (arg.type, len(arg.dimentions), arg.dimentions)) for arg in self.args if len(arg.dimentions) != 0])
         for a in self.args:
             for i in a.dimentions:
                 if i in scalar_args or i in array_args:

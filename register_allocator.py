@@ -1,4 +1,4 @@
-from collections import defaultdict
+
 
 label_to_color = {
     1: "red",
