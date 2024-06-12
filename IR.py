@@ -361,9 +361,9 @@ class AtomicAssign(IR):
                     else:
                         code.append(Move(reg, argument_reg))
             if isinstance(self.argument, FuncCallOperand):
-                if "ecx" in self.used_regs:
+                if "ecx" in self.used_regs and reg != "ecx":
                     code.append(Push("ecx"))
-                if "edx" in self.used_regs:
+                if "edx" in self.used_regs and reg != "edx":
                     code.append(Push("edx"))
                 load_params, remove_params = self.argument.get_call_instructions(scalar_variables, array_adresses)
                 code += load_params
@@ -379,9 +379,9 @@ class AtomicAssign(IR):
                 else:
                     code.append(Move(reg, "eax"))
                 code += remove_params
-                if "edx" in self.used_regs:
+                if "edx" in self.used_regs and reg != "edx":
                     code.append(Pop("edx"))
-                if "ecx" in self.used_regs:
+                if "ecx" in self.used_regs and reg != "ecx":
                     code.append(Pop("ecx"))
             if isinstance(self.argument, ArrayUseOperand):
                 arr_code, src, pop_intr = generate_array_index_code(self.argument.name, self.argument.indexing,
@@ -653,6 +653,12 @@ class BinaryAssign(IR):
 
         if self.op == "-":
             if isinstance(self.right, IntConstantOperand) and self.right.value == 0:
+                return AtomicAssign(self.type, self.value, self.left, None, None)
+
+        if self.op == "*":
+            if isinstance(self.left, IntConstantOperand) and self.left.value == 1:
+                return AtomicAssign(self.type, self.value, self.right, None, None)
+            if isinstance(self.right, IntConstantOperand) and self.right.value == 1:
                 return AtomicAssign(self.type, self.value, self.left, None, None)
 
         if self.op == "div" or self.op == "mod":

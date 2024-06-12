@@ -303,7 +303,10 @@ class FuncCallOperand(Operand):
             if arg.value in scalar_variables:
                 reg = arg.get_low_ir(scalar_variables)
                 if reg not in xmm_regs:
-                    load_params.append(Push(reg))
+                    if reg in regs:
+                        load_params.append(Push(reg))
+                    else:
+                        load_params.append(Push("dword " + reg))
                 else:
                     load_params.append(Sub("esp", "4"))
                     load_params.append(MoveSS("dword [esp]", reg))

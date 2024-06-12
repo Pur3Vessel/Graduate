@@ -2,9 +2,7 @@ from graph import *
 from lattice import *
 import re
 import numpy as np
-
-tile_sizes1 = [2, 2]
-tile_sizes2 = [25, 32, 32]
+import config
 
 
 class Context:
@@ -19,6 +17,7 @@ class Context:
         self.contexts = {}
         self.labels_to_live = {}
         self.tmp_version = -1
+        self.n_test = None
 
     def set_contexts(self, contexts):
         self.contexts = contexts
@@ -1016,12 +1015,100 @@ class Context:
         else:
             self.skewed_tiling(nest, indexes, distances)
 
+    def get_standard_pair(self, nest, tile_sizes, indexes, i):
+        d = tile_sizes[i]
+        latch = nest[i][0]
+        enter, after = self.get_cycle_blocks(nest[i])
+        start = None
+        for instruction in enter.block[::-1]:
+            if isinstance(instruction, AtomicAssign) and instruction.value == indexes[i]:
+                start = self.get_full_exp_instr(instruction, enter.block)
+        cmp = latch.block[-2]
+        end = None
+        if isinstance(cmp.right, IdOperand) and "$" in cmp.right.value:
+            for instr in latch.block:
+                if instr.value == cmp.right.value:
+                    end = self.get_full_exp_instr(instr, latch.block)
+                    break
+        else:
+            end = [cmp.right]
+        cycle_enter = Vertex.init_empty_vertex()
+        cycle_enter.block += start[1:]
+        cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!0", start[0], None, None))
+        cycle_enter.block += end[1:]
+        cmp_name = self.get_tmp()
+        cycle_enter.block.append(
+            BinaryAssign('int', cmp_name, "div", end[0], IntConstantOperand(d), 'int', 'int'))
+        br_name = self.get_tmp()
+        cycle_enter.block.append(
+            BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!0"), IdOperand(cmp_name), 'int',
+                         'int'))
+        cycle_enter.block.append(IsTrueInstruction(IdOperand(br_name)))
+        header_block = Vertex.init_empty_vertex()
+        cycle_enter.add_output_connector(header_block)
+        header_block.add_input_connector(cycle_enter)
+        latch_block = Vertex.init_empty_vertex()
+        latch_block.block.append(
+            BinaryAssign('int', indexes[i] + "!0", "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1),
+                         'int', 'int'))
+        latch_block.block += end[1:]
+        cmp_name = self.get_tmp()
+        latch_block.block.append(
+            BinaryAssign('int', cmp_name, "div", end[0], IntConstantOperand(d), 'int', 'int'))
+        br_name = self.get_tmp()
+        latch_block.block.append(
+            BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!0"), IdOperand(cmp_name), 'int',
+                         'int'))
+        latch_block.block.append(IsTrueInstruction(IdOperand(br_name)))
+        latch_block.add_output_connector(header_block)
+        header_block.add_input_connector(latch_block)
+        cycle1 = (cycle_enter, header_block, latch_block)
+
+        cycle_enter = Vertex.init_empty_vertex()
+        init_tmp = self.get_tmp()
+        cycle_enter.block.append(
+            BinaryAssign('int', init_tmp, '*', IdOperand(indexes[i] + "!0"), IntConstantOperand(d), 'int',
+                         'int'))
+        cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!1", IdOperand(init_tmp), None, None))
+        add_name = self.get_tmp()
+        cycle_enter.block.append(
+            BinaryAssign('int', add_name, "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1), 'int',
+                         'int'))
+        mul_name = self.get_tmp()
+        cycle_enter.block.append(
+            BinaryAssign('int', mul_name, '*', IdOperand(add_name), IntConstantOperand(d), 'int', 'int'))
+        br_name = self.get_tmp()
+        cycle_enter.block.append(
+            BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), IdOperand(mul_name), 'int',
+                         'int'))
+        cycle_enter.block.append(IsTrueInstruction(IdOperand(br_name)))
+        header_block = Vertex.init_empty_vertex()
+        cycle_enter.add_output_connector(header_block)
+        header_block.add_input_connector(cycle_enter)
+        latch_block = Vertex.init_empty_vertex()
+        latch_block.block.append(
+            BinaryAssign('int', indexes[i] + "!1", "+", IdOperand(indexes[i] + "!1"), IntConstantOperand(1),
+                         'int', 'int'))
+        add_name = self.get_tmp()
+        latch_block.block.append(
+            BinaryAssign('int', add_name, "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1), 'int',
+                         'int'))
+        mul_name = self.get_tmp()
+        latch_block.block.append(
+            BinaryAssign('int', mul_name, '*', IdOperand(add_name), IntConstantOperand(d), 'int', 'int'))
+        br_name = self.get_tmp()
+        latch_block.block.append(
+            BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), IdOperand(mul_name), 'int',
+                         'int'))
+        latch_block.block.append(IsTrueInstruction(IdOperand(br_name)))
+        latch_block.add_output_connector(header_block)
+        header_block.add_input_connector(latch_block)
+        cycle2 = (cycle_enter, header_block, latch_block)
+        return cycle1, cycle2, end
+
     def rectangular_tiling(self, nest, indexes):
         n_cycles = len(nest)
-        if n_cycles == 2:
-            tile_sizes = tile_sizes1
-        else:
-            tile_sizes = tile_sizes2
+        tile_sizes = config.tile_sizes[self.n_test][n_cycles]
         cycles_pairs = []
         cycles_orig = []
         cycles_ost = []
@@ -1031,95 +1118,11 @@ class Context:
         body = Vertex.init_empty_vertex()
         body.block = nest[-1][2].block
         for i in range(n_cycles):
-            d = tile_sizes[i]
             latch = nest[i][0]
             enter, after = self.get_cycle_blocks(nest[i])
-            start = None
-            for instruction in enter.block[::-1]:
-                if isinstance(instruction, AtomicAssign) and instruction.value == indexes[i]:
-                    start = self.get_full_exp_instr(instruction, enter.block)
-            cmp = latch.block[-2]
-            end = None
-            if isinstance(cmp.right, IdOperand) and "$" in cmp.right.value:
-                for instr in latch.block:
-                    if instr.value == cmp.right.value:
-                        end = self.get_full_exp_instr(instr, latch.block)
-                        break
-            else:
-                end = [cmp.right]
-            cycle_enter = Vertex.init_empty_vertex()
-            cycle_enter.block += start[1:]
-            cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!0", start[0], None, None))
-            cycle_enter.block += end[1:]
-            cmp_name = self.get_tmp()
-            cycle_enter.block.append(
-                BinaryAssign('int', cmp_name, "div", end[0], IntConstantOperand(d), 'int', 'int'))
-            br_name = self.get_tmp()
-            cycle_enter.block.append(
-                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!0"), IdOperand(cmp_name), 'int',
-                             'int'))
-            cycle_enter.block.append(IsTrueInstruction(IdOperand(br_name)))
-            header_block = Vertex.init_empty_vertex()
-            cycle_enter.add_output_connector(header_block)
-            header_block.add_input_connector(cycle_enter)
-            latch_block = Vertex.init_empty_vertex()
-            latch_block.block.append(
-                BinaryAssign('int', indexes[i] + "!0", "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1),
-                             'int', 'int'))
-            latch_block.block += end[1:]
-            cmp_name = self.get_tmp()
-            latch_block.block.append(
-                BinaryAssign('int', cmp_name, "div", end[0], IntConstantOperand(d), 'int', 'int'))
-            br_name = self.get_tmp()
-            latch_block.block.append(
-                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!0"), IdOperand(cmp_name), 'int',
-                             'int'))
-            latch_block.block.append(IsTrueInstruction(IdOperand(br_name)))
-            latch_block.add_output_connector(header_block)
-            header_block.add_input_connector(latch_block)
-            cycle1 = (cycle_enter, header_block, latch_block)
-
-            cycle_enter = Vertex.init_empty_vertex()
-            init_tmp = self.get_tmp()
-            cycle_enter.block.append(
-                BinaryAssign('int', init_tmp, '*', IdOperand(indexes[i] + "!0"), IntConstantOperand(d), 'int',
-                             'int'))
-            cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!1", IdOperand(init_tmp), None, None))
-            add_name = self.get_tmp()
-            cycle_enter.block.append(
-                BinaryAssign('int', add_name, "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1), 'int',
-                             'int'))
-            mul_name = self.get_tmp()
-            cycle_enter.block.append(
-                BinaryAssign('int', mul_name, '*', IdOperand(add_name), IntConstantOperand(d), 'int', 'int'))
-            br_name = self.get_tmp()
-            cycle_enter.block.append(
-                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), IdOperand(mul_name), 'int',
-                             'int'))
-            cycle_enter.block.append(IsTrueInstruction(IdOperand(br_name)))
-            header_block = Vertex.init_empty_vertex()
-            cycle_enter.add_output_connector(header_block)
-            header_block.add_input_connector(cycle_enter)
-            latch_block = Vertex.init_empty_vertex()
-            latch_block.block.append(
-                BinaryAssign('int', indexes[i] + "!1", "+", IdOperand(indexes[i] + "!1"), IntConstantOperand(1),
-                             'int', 'int'))
-            add_name = self.get_tmp()
-            latch_block.block.append(
-                BinaryAssign('int', add_name, "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1), 'int',
-                             'int'))
-            mul_name = self.get_tmp()
-            latch_block.block.append(
-                BinaryAssign('int', mul_name, '*', IdOperand(add_name), IntConstantOperand(d), 'int', 'int'))
-            br_name = self.get_tmp()
-            latch_block.block.append(
-                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), IdOperand(mul_name), 'int',
-                             'int'))
-            latch_block.block.append(IsTrueInstruction(IdOperand(br_name)))
-            latch_block.add_output_connector(header_block)
-            header_block.add_input_connector(latch_block)
-            cycle2 = (cycle_enter, header_block, latch_block)
+            cycle1, cycle2, end = self.get_standard_pair(nest, tile_sizes, indexes, i)
             cycles_pairs.append((cycle1, cycle2))
+            d = tile_sizes[i]
 
             cycle_enter = Vertex.init_empty_vertex()
             cycle_enter.block += end[1:]
@@ -1263,121 +1266,154 @@ class Context:
         skew_matrix = self.get_skew_matrix(distances)
         print(skew_matrix)
         n_cycles = len(nest)
-        if n_cycles == 2:
-            tile_sizes = tile_sizes1
-        else:
-            tile_sizes = tile_sizes2
+        tile_sizes = config.tile_sizes[self.n_test][n_cycles]
         cycles_pairs = []
         enter_al, after_all = self.get_cycle_blocks(nest[0])
         enter_all = enter_al.input_vertexes[0]
         self.graph.vertexes.remove(enter_al)
         body = Vertex.init_empty_vertex()
         body.block = nest[-1][2].block
+        ends = []
+        f_adds = []
         for i in range(n_cycles):
-            d = tile_sizes[i]
-            latch = nest[i][0]
-            enter, after = self.get_cycle_blocks(nest[i])
-            start = None
-            for instruction in enter.block[::-1]:
-                if isinstance(instruction, AtomicAssign) and instruction.value == indexes[i]:
-                    start = self.get_full_exp_instr(instruction, enter.block)
-            cmp = latch.block[-2]
-            end = None
-            if isinstance(cmp.right, IdOperand) and "$" in cmp.right.value:
-                for instr in latch.block:
-                    if instr.value == cmp.right.value:
-                        end = self.get_full_exp_instr(instr, latch.block)
-                        break
+            if i == 0:
+                cycle1, cycle2, end = self.get_standard_pair(nest, tile_sizes, indexes, i)
             else:
-                end = [cmp.right]
-            cycle_enter = Vertex.init_empty_vertex()
-            cycle_enter.block += start[1:]
-            cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!0", start[0], None, None))
-            cycle_enter.block += end[1:]
-            cmp_name = self.get_tmp()
-            cycle_enter.block.append(
-                BinaryAssign('int', cmp_name, "div", end[0], IntConstantOperand(d), 'int', 'int'))
-            br_name = self.get_tmp()
-            cycle_enter.block.append(
-                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!0"), IdOperand(cmp_name), 'int',
-                             'int'))
-            cycle_enter.block.append(IsTrueInstruction(IdOperand(br_name)))
-            header_block = Vertex.init_empty_vertex()
-            cycle_enter.add_output_connector(header_block)
-            header_block.add_input_connector(cycle_enter)
-            latch_block = Vertex.init_empty_vertex()
-            latch_block.block.append(
-                BinaryAssign('int', indexes[i] + "!0", "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1),
-                             'int', 'int'))
-            latch_block.block += end[1:]
-            cmp_name = self.get_tmp()
-            latch_block.block.append(
-                BinaryAssign('int', cmp_name, "div", end[0], IntConstantOperand(d), 'int', 'int'))
-            br_name = self.get_tmp()
-            latch_block.block.append(
-                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!0"), IdOperand(cmp_name), 'int',
-                             'int'))
-            latch_block.block.append(IsTrueInstruction(IdOperand(br_name)))
-            latch_block.add_output_connector(header_block)
-            header_block.add_input_connector(latch_block)
-            cycle1 = (cycle_enter, header_block, latch_block)
+                fs = []
+                for j in range(i):
+                    fs.append(skew_matrix[i][j])
+                d = tile_sizes[i]
+                latch = nest[i][0]
+                enter, after = self.get_cycle_blocks(nest[i])
+                start = None
+                for instruction in enter.block[::-1]:
+                    if isinstance(instruction, AtomicAssign) and instruction.value == indexes[i]:
+                        start = self.get_full_exp_instr(instruction, enter.block)
+                cmp = latch.block[-2]
+                end = None
+                if isinstance(cmp.right, IdOperand) and "$" in cmp.right.value:
+                    for instr in latch.block:
+                        if instr.value == cmp.right.value:
+                            end = self.get_full_exp_instr(instr, latch.block)
+                            break
+                else:
+                    end = [cmp.right]
+                cycle_enter = Vertex.init_empty_vertex()
+                cycle_enter.block += start[1:]
+                cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!0", start[0], None, None))
+                cycle_enter.block += end[1:]
+                f_muls = []
+                for j, f in enumerate(fs):
+                    mul_tmp = self.get_tmp()
+                    minus_tmp = self.get_tmp()
+                    cycle_enter.block.append(BinaryAssign("int", minus_tmp, "-", ends[j], IntConstantOperand(1), "int", "int"))
+                    cycle_enter.block.append(BinaryAssign("int", mul_tmp, "*", IntConstantOperand(f), IdOperand(minus_tmp), "int", "int"))
+                    f_muls.append(mul_tmp)
+                prev_add = self.get_tmp()
+                cycle_enter.block.append(BinaryAssign("int", prev_add, "+", end[0], IdOperand(f_muls[0]), "int", "int"))
+                for f_mul in f_muls[1:]:
+                    add = self.get_tmp()
+                    cycle_enter.block.append(BinaryAssign("int", add, "+", IdOperand(prev_add), IdOperand(f_mul), "int", "int"))
+                    prev_add = add
+                cmp_name = self.get_tmp()
+                cycle_enter.block.append(
+                    BinaryAssign('int', cmp_name, "div", IdOperand(prev_add), IntConstantOperand(d), 'int', 'int'))
+                br_name = self.get_tmp()
+                cycle_enter.block.append(
+                    BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!0"), IdOperand(cmp_name), 'int',
+                                 'int'))
+                cycle_enter.block.append(IsTrueInstruction(IdOperand(br_name)))
+                header_block = Vertex.init_empty_vertex()
+                cycle_enter.add_output_connector(header_block)
+                header_block.add_input_connector(cycle_enter)
+                latch_block = Vertex.init_empty_vertex()
+                latch_block.block.append(
+                    BinaryAssign('int', indexes[i] + "!0", "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1),
+                                 'int', 'int'))
+                cmp_name = self.get_tmp()
+                latch_block.block.append(
+                    BinaryAssign('int', cmp_name, "div", IdOperand(prev_add), IntConstantOperand(d), 'int', 'int'))
+                br_name = self.get_tmp()
+                latch_block.block.append(
+                    BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!0"), IdOperand(cmp_name), 'int',
+                                 'int'))
+                latch_block.block.append(IsTrueInstruction(IdOperand(br_name)))
+                latch_block.add_output_connector(header_block)
+                header_block.add_input_connector(latch_block)
+                cycle1 = (cycle_enter, header_block, latch_block)
 
-            cycle_enter = Vertex.init_empty_vertex()
-            init_tmp = self.get_tmp()
-            cycle_enter.block.append(
-                BinaryAssign('int', init_tmp, '*', IdOperand(indexes[i] + "!0"), IntConstantOperand(d), 'int',
-                             'int'))
-            cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!1", IdOperand(init_tmp), None, None))
-            add_name = self.get_tmp()
-            cycle_enter.block.append(
-                BinaryAssign('int', add_name, "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1), 'int',
-                             'int'))
-            mul_name = self.get_tmp()
-            cycle_enter.block.append(
-                BinaryAssign('int', mul_name, '*', IdOperand(add_name), IntConstantOperand(d), 'int', 'int'))
-            br_name = self.get_tmp()
-            cycle_enter.block.append(
-                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), IdOperand(mul_name), 'int',
-                             'int'))
-            cycle_enter.block.append(IsTrueInstruction(IdOperand(br_name)))
-            header_block = Vertex.init_empty_vertex()
-            cycle_enter.add_output_connector(header_block)
-            header_block.add_input_connector(cycle_enter)
-            latch_block = Vertex.init_empty_vertex()
-            latch_block.block.append(
-                BinaryAssign('int', indexes[i] + "!1", "+", IdOperand(indexes[i] + "!1"), IntConstantOperand(1),
-                             'int', 'int'))
-            add_name = self.get_tmp()
-            latch_block.block.append(
-                BinaryAssign('int', add_name, "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1), 'int',
-                             'int'))
-            mul_name = self.get_tmp()
-            latch_block.block.append(
-                BinaryAssign('int', mul_name, '*', IdOperand(add_name), IntConstantOperand(d), 'int', 'int'))
-            br_name = self.get_tmp()
-            latch_block.block.append(
-                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), IdOperand(mul_name), 'int',
-                             'int'))
-            latch_block.block.append(IsTrueInstruction(IdOperand(br_name)))
-            latch_block.add_output_connector(header_block)
-            header_block.add_input_connector(latch_block)
-            cycle2 = (cycle_enter, header_block, latch_block)
+                cycle_enter = Vertex.init_empty_vertex()
+                init_tmp_arg1 = self.get_tmp()
+                cycle_enter.block.append(
+                    BinaryAssign('int', init_tmp_arg1, '*', IdOperand(indexes[i] + "!0"), IntConstantOperand(d), 'int',
+                                 'int'))
+                f_muls = []
+                for j, f in enumerate(fs):
+                    mul_tmp = self.get_tmp()
+                    cycle_enter.block.append(BinaryAssign("int", mul_tmp, "*", IntConstantOperand(f),
+                                                          IdOperand(indexes[j] + "!1"), "int", "int"))
+                    f_muls.append(mul_tmp)
+                prev_add = self.get_tmp()
+                if len(f_muls) == 1:
+                    cycle_enter.block.append(AtomicAssign("int", prev_add, IdOperand(f_muls[0]), None, None))
+                else:
+                    cycle_enter.block.append(BinaryAssign("int", prev_add, "+", IdOperand(f_muls[0]), IdOperand(f_muls[1]), "int", "int"))
+                    for f_mul in f_muls[2:]:
+                        add = self.get_tmp()
+                        cycle_enter.block(BinaryAssign("int", add, "+", IdOperand(prev_add), IdOperand(f_mul), "int", "int"))
+                        prev_add = add
+                f_adds.append(prev_add)
+                cycle_enter.block.append(AtomicAssign("int", indexes[i] + "!1",
+                                                      FuncCallOperand("max", [IdOperand(init_tmp_arg1),
+                                                                              IdOperand(prev_add)]), None, None))
+                first_arg_name = self.get_tmp()
+                cycle_enter.block.append(BinaryAssign("int", first_arg_name, "+", end[0], IdOperand(prev_add), "int", "int"))
+                add_name = self.get_tmp()
+                cycle_enter.block.append(BinaryAssign("int", add_name, "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1), "int", "int"))
+                second_arg_name = self.get_tmp()
+                cycle_enter.block.append(BinaryAssign("int", second_arg_name, "*", IdOperand(add_name), IntConstantOperand(d), "int", "int"))
+                min_name = self.get_tmp()
+                cycle_enter.block.append(AtomicAssign("int", min_name, FuncCallOperand("min", [IdOperand(first_arg_name), IdOperand(second_arg_name)]), None, None))
+                br_name = self.get_tmp()
+                cycle_enter.block.append(
+                    BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), IdOperand(min_name), 'int',
+                                 'int'))
+                cycle_enter.block.append(IsTrueInstruction(IdOperand(br_name)))
+                header_block = Vertex.init_empty_vertex()
+                cycle_enter.add_output_connector(header_block)
+                header_block.add_input_connector(cycle_enter)
+                latch_block = Vertex.init_empty_vertex()
+                latch_block.block.append(
+                    BinaryAssign('int', indexes[i] + "!1", "+", IdOperand(indexes[i] + "!1"), IntConstantOperand(1),
+                                 'int', 'int'))
+                br_name = self.get_tmp()
+                latch_block.block.append(
+                    BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), IdOperand(min_name), 'int',
+                                 'int'))
+                latch_block.block.append(IsTrueInstruction(IdOperand(br_name)))
+                latch_block.add_output_connector(header_block)
+                header_block.add_input_connector(latch_block)
+                cycle2 = (cycle_enter, header_block, latch_block)
+            ends.append(end[0])
             cycles_pairs.append((cycle1, cycle2))
 
-        for index in indexes:
+        for i, index in enumerate(indexes):
             self.names.remove((index, "int"))
             self.names.add((index + "!0", "int"))
             self.names.add((index + "!1", "int"))
-            self.replace_name(body, index, index + "!1")
-
+            if i > 0:
+                self.names.add((index + "!2", "int"))
+            if i == 0:
+                self.replace_name(body, index, index + "!1")
+            else:
+                self.replace_name(body, index, index + "!2")
+        for i in range(len(indexes) - 1, 0, -1):
+            index = indexes[i]
+            f_add = f_adds[i - 1]
+            body.insert_head(BinaryAssign("int", index + "!2", "-", IdOperand(index + "!1"), IdOperand(f_add), "int", "int"))
         one = [a for a, b, in cycles_pairs]
         two = [b for a, b in cycles_pairs]
         cycles_pairs = one + two
-        mid = len(cycles_pairs) // 2
-        last = cycles_pairs[-1]
-        for i in range(len(cycles_pairs) - 1, mid, -1):
-            cycles_pairs[i] = cycles_pairs[i - 1]
-        cycles_pairs[mid] = last
         for vertex in nest[0]:
             self.graph.vertexes.remove(vertex)
         enter_all_out = []

@@ -10,7 +10,13 @@ gcc -m32 test1.o program1.o help.o -o test1
 
 
 
+gcc -m32 -c test2.c -o test2.o
 
+nasm -f elf32 program2.asm -o program2.o
+
+gcc -m32 test2.o program2.o help.o -o test2
+
+./test2
 
 
 gcc -m32 -c test3.c -o test3.o

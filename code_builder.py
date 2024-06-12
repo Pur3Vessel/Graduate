@@ -285,12 +285,12 @@ class ContextBuilder:
         self.context.quit_ssa()
         # for instruction, label in self.context.graph.instructions_to_labels.items():
         #        print("====================")
-        # for label, lives in self.context.labels_to_live.items():
+        #for label, lives in self.context.labels_to_live.items():
         #    print(label, lives)
         self.compute_used_regs()
         entry_code, used_xmm = self.generate_entry_block()
         self.code += entry_code
-        first = self.context.graph.vertexes[1]
+        first = self.context.graph.vertexes[0].output_vertexes[0]
         stack = [first]
         for v in self.context.graph.vertexes:
             v.checked = False

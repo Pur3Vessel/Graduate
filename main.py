@@ -1,4 +1,5 @@
 import builder
+import context
 from frontend import *
 from code_builder import *
 import argparse
@@ -34,8 +35,6 @@ def opt_pass(tree, j, tiling_flag, vectorisation_flag):
         builder.contexts[func.name].place_phi()
         # Переименовывание переменных
         builder.contexts[func.name].change_numeration()
-        if func.name == 'tile' and j == 0:
-            builder.print_graph("out.txt")
         # Constant_propagation
         changed = builder.contexts[func.name].constant_propagation() or changed
         # print(func.name, changed)
@@ -64,6 +63,7 @@ def generate_tests(tiling_flag, vectorisation_flag):
         tree.generate()
         for func in tree.funcDefs:
             builder.contexts[func.name].set_contexts(builder.contexts)
+            builder.contexts[func.name].n_test = i
         builder.set_labels()
         builder.print_graph(out_file_start)
         changed = True
@@ -85,6 +85,7 @@ def generate_file(filename, tiling_flag, vectorisation_flag):
     tree.generate()
     for func in tree.funcDefs:
         builder.contexts[func.name].set_contexts(builder.contexts)
+        builder.contexts[func.name].n_test = -1
     builder.set_labels()
     changed = True
     j = 0

@@ -21,7 +21,7 @@ int main() {
     for (int i = 0; i < 5000; i++) {
         u[i] = i;
     }
-    int result = tile_test(u, 5000, 200);
+    int result = tile_test((int*)u, 5000, 200);
     printf("Результат: %d\n", result);
     free(u);
     int* u1 = malloc(sizeof(int[5000]));
@@ -29,7 +29,7 @@ int main() {
         u1[i] = i;
     }
     start = clock();
-    int result1 = tile(u1, 5000, 200);
+    int result1 = tile((int*)u1, 5000, 200);
     end = clock();
     printf("Результат сгенерированной программы: %d\n", result1);
     cpu_time_used = ((double) (end - start)) / CLOCKS_PER_SEC;
