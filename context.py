@@ -7,9 +7,6 @@ tile_sizes1 = [2, 2]
 tile_sizes2 = [25, 32, 32]
 
 
-
-
-
 class Context:
     def __init__(self):
         self.count = 0
@@ -45,11 +42,11 @@ class Context:
             self.change_numeration_by_name(name[0])
 
     def change_numeration_by_name(self, name):
-        self.traverse(self.graph.vertexes[1], name)
+        self.traverse(self.graph.vertexes[0], name)
 
     def traverse(self, v, name):
         for stmt in v.block:
-            if not isinstance(stmt, PhiAssign):
+            if not isinstance(stmt, (PhiAssign, FuncDefInstruction)):
                 stmt.rename_operands(name, self.stack[-1])
 
             if is_assign(stmt) and stmt.value == name:
@@ -203,7 +200,7 @@ class Context:
             if is_assign(instruction) and not inst_invar[instruction]:
                 is_inv = True
                 if isinstance(instruction,
-                              (AtomicAssign, UnaryAssign, BinaryAssign)) and instruction.dimentions is not None:
+                              AtomicAssign) and instruction.dimentions is not None:
                     is_inv = False
                 if isinstance(instruction, BinaryAssign) and instruction.is_cmp():
                     is_inv = False
@@ -306,7 +303,7 @@ class Context:
                 if isinstance(instr, ArrayInitInstruction):
                     lattice.sl[instr.name] = ConstantLatticeElement.LOW
                 if is_assign(instr):
-                    if instr.dimentions is None:
+                    if not (isinstance(instr, AtomicAssign) and instr.dimentions is not None):
                         lattice.init_value(instr.value)
             for out_v in v.output_vertexes:
                 exec_flag[(v, out_v)] = False
@@ -356,7 +353,7 @@ class Context:
 
     def visit_inst(self, v, instr, lattice, flowWL, SSAWL):
         if isinstance(instr, (FuncDefInstruction, ReturnInstruction, ArrayInitInstruction)) or (
-                is_assign(instr) and instr.dimentions is not None):
+                isinstance(instr, AtomicAssign) and instr.dimentions is not None):
             if len(v.output_vertexes) != 0:
                 flowWL.add((v, v.output_vertexes[0]))
             return
@@ -385,7 +382,7 @@ class Context:
         return isinstance(instruction,
                           (IsTrueInstruction, ReturnInstruction, ArrayInitInstruction, FuncDefInstruction)) or (
                 isinstance(instruction,
-                           (AtomicAssign, BinaryAssign, UnaryAssign)) and instruction.dimentions is not None)
+                           AtomicAssign) and instruction.dimentions is not None)
 
     def get_assign_for_op(self, op):
         for v in self.graph.vertexes:
@@ -494,7 +491,8 @@ class Context:
         self.names = set()
         for v in self.graph.vertexes:
             for instr in v.block:
-                if is_assign(instr) and instr.dimentions is None and len(instr.value.split("$")) == 1:
+                if is_assign(instr) and len(instr.value.split("$")) == 1 and not (
+                        isinstance(instr, AtomicAssign) and instr.dimentions is not None):
                     self.names.add((instr.value, instr.type))
 
     def get_variables(self):
@@ -502,7 +500,9 @@ class Context:
         for v in self.graph.vertexes:
             for instruction in v.block:
                 if isinstance(instruction,
-                              (AtomicAssign, BinaryAssign, UnaryAssign)) and instruction.dimentions is None:
+                              (UnaryAssign, BinaryAssign)):
+                    variables.append(instruction.value)
+                if isinstance(instruction, AtomicAssign) and instruction.dimentions is None:
                     variables.append(instruction.value)
                 if isinstance(instruction, PhiAssign):
                     variables.append(instruction.value)
@@ -520,11 +520,14 @@ class Context:
         for v in self.graph.vertexes:
             for instruction in v.block:
                 if isinstance(instruction,
-                              (AtomicAssign, BinaryAssign,
-                               UnaryAssign)) and instruction.dimentions is None and (
+                              (BinaryAssign,
+                               UnaryAssign)) and (
                         instruction.type == "int" or instruction.type == "bool"):
                     variables.append(instruction.value)
                 if isinstance(instruction, PhiAssign) and (instruction.type == "int" or instruction.type == "bool"):
+                    variables.append(instruction.value)
+                if isinstance(instruction, AtomicAssign) and instruction.dimentions is None and (
+                        instruction.type == "int" or instruction.type == "bool"):
                     variables.append(instruction.value)
                 if isinstance(instruction, FuncDefInstruction):
                     for arg in instruction.arguments:
@@ -541,10 +544,13 @@ class Context:
         for v in self.graph.vertexes:
             for instruction in v.block:
                 if isinstance(instruction,
-                              (AtomicAssign, BinaryAssign,
-                               UnaryAssign)) and instruction.dimentions is None and instruction.type == "float":
+                              (BinaryAssign,
+                               UnaryAssign)) and instruction.type == "float":
                     variables.append(instruction.value)
                 if isinstance(instruction, PhiAssign) and instruction.type == "float":
+                    variables.append(instruction.value)
+                if isinstance(instruction,
+                              AtomicAssign) and instruction.dimentions is None and instruction.type == "float":
                     variables.append(instruction.value)
                 if isinstance(instruction, FuncDefInstruction):
                     for arg in instruction.arguments:
@@ -552,106 +558,44 @@ class Context:
                             variables.append(arg.name)
         return variables
 
-    def get_assign_instruction_and_block(self, var):
-        for v in self.graph.vertexes:
-            for instrunction in v.block:
-                if isinstance(instrunction, (AtomicAssign, UnaryAssign,
-                                             BinaryAssign)) and instrunction.dimentions is None and instrunction.value == var:
-                    return instrunction, v
-                if isinstance(instrunction, PhiAssign) and instrunction.value == var:
-                    return instrunction, v
-                if isinstance(instrunction, FuncDefInstruction):
-                    for arg in instrunction.arguments:
-                        if arg.dimentions is None and arg.name == var:
-                            return instrunction, v
-                        if arg.dimentions is not None:
-                            for d in arg.dimentions:
-                                if d == var:
-                                    return instrunction, v
-
     def add_live(self, label, var):
         if label not in self.labels_to_live.keys():
             self.labels_to_live[label] = set()
         self.labels_to_live[label].add(var)
 
     def add_live_labels_list(self, labels, var):
-        var = var.replace("$", "_")
-        for label in labels:
-            self.add_live(label, var)
+        for label in labels[var]:
+            self.add_live(label, var.replace("$", "_"))
 
-    def build_lives_dfs_last(self, var, labels, vertex, pred, assign):
+    def build_lives_dfs(self, labels, vertex, pred):
         breakable = False
-        # print(var)
         for instruction in vertex.block:
-            if instruction == assign:
-                breakable = True
-                break
-            label = self.graph.instructions_to_labels[instruction]
-            if len(labels) == 0 or not (labels[-1] == label):
-                labels.append(label)
-            if labels.count(label) > 2:
-                breakable = True
-                break
-            if isinstance(instruction, PhiAssign):
-                is_use = instruction.is_use_op_for_label(var, self.which_pred(vertex, pred))
-            else:
-                is_use = instruction.is_use_op(var)
-            if is_use:
-                self.add_live_labels_list(labels, var)
-                breakable = True
-                break
+            for variable in labels.keys():
+                label = self.graph.instructions_to_labels[instruction]
+                if len(labels[variable]) == 0 or not (labels[variable][-1] == label):
+                    labels[variable].append(label)
+                if isinstance(instruction,
+                              (AtomicAssign, UnaryAssign, BinaryAssign, PhiAssign)) and instruction.value == variable:
+                    labels[variable] = []
+                if isinstance(instruction, PhiAssign):
+                    if instruction.is_use_op_for_label(variable, self.which_pred(vertex, pred)):
+                        self.add_live_labels_list(labels, variable)
+                else:
+                    if instruction.is_use_op(variable):
+                        self.add_live_labels_list(labels, variable)
+                if labels[variable].count(label) > 2:
+                    breakable = True
         if not breakable:
             for out_v in vertex.output_vertexes:
-                self.build_lives_dfs(var, deepcopy(labels), out_v, vertex, assign)
-
-    def build_lives_dfs(self, var, labels, vertex, pred, assign):
-        breakable = False
-        last = False
-        for instruction in vertex.block:
-            if instruction == assign:
-                breakable = True
-                break
-            label = self.graph.instructions_to_labels[instruction]
-            if label in labels and label != labels[-1]:
-                last = True
-                break
-            if len(labels) == 0 or not (labels[-1] == label):
-                labels.append(label)
-            if isinstance(instruction, PhiAssign):
-                is_use = instruction.is_use_op_for_label(var, self.which_pred(vertex, pred))
-            else:
-                is_use = instruction.is_use_op(var)
-            if is_use:
-                self.add_live_labels_list(labels, var)
-        if not breakable:
-            if last:
-                self.build_lives_dfs_last(var, deepcopy(labels), vertex, pred, assign)
-            else:
-                for out_v in vertex.output_vertexes:
-                    self.build_lives_dfs(var, deepcopy(labels), out_v, vertex, assign)
+                self.build_lives_dfs(deepcopy(labels), out_v, vertex)
 
     def build_lives(self):
         self.graph.labels_dfs()
         variables = self.get_variables()
-
+        labels = {}
         for var in variables:
-            labels = []
-            assign, v = self.get_assign_instruction_and_block(var)
-            find_assign = False
-            for instruction in v.block:
-                if instruction == assign:
-                    find_assign = True
-                    continue
-                if not find_assign:
-                    continue
-                if not isinstance(instruction, PhiAssign):
-                    label = self.graph.instructions_to_labels[instruction]
-                    if len(labels) == 0 or not (labels[-1] == label):
-                        labels.append(label)
-                    if instruction.is_use_op(var):
-                        self.add_live_labels_list(labels, var)
-            for out_v in v.output_vertexes:
-                self.build_lives_dfs(var, deepcopy(labels), out_v, v, assign)
+            labels[var] = []
+        self.build_lives_dfs(deepcopy(labels), self.graph.vertexes[0], None)
 
     def not_phi_once(self, label, var, other_var):
         instructions = []
@@ -684,6 +628,7 @@ class Context:
         for v in self.graph.vertexes:
             for instruction in v.block:
                 if isinstance(instruction, PhiAssign):
+                    phi_label = self.graph.instructions_to_labels[instruction]
                     assign1 = AtomicAssign(instruction.type, instruction.value, instruction.arguments[0], None, None)
                     assign2 = AtomicAssign(instruction.type, instruction.value, instruction.arguments[1], None, None)
                     assign1.is_phi = True
@@ -698,6 +643,8 @@ class Context:
                         v2.block.insert(self.find_place(v2.block), assign2)
                     else:
                         v2.block.append(assign2)
+                    self.graph.instructions_to_labels[assign1] = phi_label
+                    self.graph.instructions_to_labels[assign2] = phi_label
             while len(v.block) > 0 and isinstance(v.block[0], PhiAssign):
                 v.block.pop(0)
 
@@ -1106,10 +1053,10 @@ class Context:
             cycle_enter.block += end[1:]
             cmp_name = self.get_tmp()
             cycle_enter.block.append(
-                BinaryAssign('int', cmp_name, "div", end[0], IntConstantOperand(d), None, 'int', 'int'))
+                BinaryAssign('int', cmp_name, "div", end[0], IntConstantOperand(d), 'int', 'int'))
             br_name = self.get_tmp()
             cycle_enter.block.append(
-                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!0"), IdOperand(cmp_name), None, 'int',
+                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!0"), IdOperand(cmp_name), 'int',
                              'int'))
             cycle_enter.block.append(IsTrueInstruction(IdOperand(br_name)))
             header_block = Vertex.init_empty_vertex()
@@ -1117,15 +1064,15 @@ class Context:
             header_block.add_input_connector(cycle_enter)
             latch_block = Vertex.init_empty_vertex()
             latch_block.block.append(
-                BinaryAssign('int', indexes[i] + "!0", "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1), None,
+                BinaryAssign('int', indexes[i] + "!0", "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1),
                              'int', 'int'))
             latch_block.block += end[1:]
             cmp_name = self.get_tmp()
             latch_block.block.append(
-                BinaryAssign('int', cmp_name, "div", end[0], IntConstantOperand(d), None, 'int', 'int'))
+                BinaryAssign('int', cmp_name, "div", end[0], IntConstantOperand(d), 'int', 'int'))
             br_name = self.get_tmp()
             latch_block.block.append(
-                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!0"), IdOperand(cmp_name), None, 'int',
+                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!0"), IdOperand(cmp_name), 'int',
                              'int'))
             latch_block.block.append(IsTrueInstruction(IdOperand(br_name)))
             latch_block.add_output_connector(header_block)
@@ -1135,19 +1082,19 @@ class Context:
             cycle_enter = Vertex.init_empty_vertex()
             init_tmp = self.get_tmp()
             cycle_enter.block.append(
-                BinaryAssign('int', init_tmp, '*', IdOperand(indexes[i] + "!0"), IntConstantOperand(d), None, 'int',
+                BinaryAssign('int', init_tmp, '*', IdOperand(indexes[i] + "!0"), IntConstantOperand(d), 'int',
                              'int'))
             cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!1", IdOperand(init_tmp), None, None))
             add_name = self.get_tmp()
             cycle_enter.block.append(
-                BinaryAssign('int', add_name, "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1), None, 'int',
+                BinaryAssign('int', add_name, "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1), 'int',
                              'int'))
             mul_name = self.get_tmp()
             cycle_enter.block.append(
-                BinaryAssign('int', mul_name, '*', IdOperand(add_name), IntConstantOperand(d), None, 'int', 'int'))
+                BinaryAssign('int', mul_name, '*', IdOperand(add_name), IntConstantOperand(d), 'int', 'int'))
             br_name = self.get_tmp()
             cycle_enter.block.append(
-                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), IdOperand(mul_name), None, 'int',
+                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), IdOperand(mul_name), 'int',
                              'int'))
             cycle_enter.block.append(IsTrueInstruction(IdOperand(br_name)))
             header_block = Vertex.init_empty_vertex()
@@ -1155,18 +1102,18 @@ class Context:
             header_block.add_input_connector(cycle_enter)
             latch_block = Vertex.init_empty_vertex()
             latch_block.block.append(
-                BinaryAssign('int', indexes[i] + "!1", "+", IdOperand(indexes[i] + "!1"), IntConstantOperand(1), None,
+                BinaryAssign('int', indexes[i] + "!1", "+", IdOperand(indexes[i] + "!1"), IntConstantOperand(1),
                              'int', 'int'))
             add_name = self.get_tmp()
             latch_block.block.append(
-                BinaryAssign('int', add_name, "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1), None, 'int',
+                BinaryAssign('int', add_name, "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1), 'int',
                              'int'))
             mul_name = self.get_tmp()
             latch_block.block.append(
-                BinaryAssign('int', mul_name, '*', IdOperand(add_name), IntConstantOperand(d), None, 'int', 'int'))
+                BinaryAssign('int', mul_name, '*', IdOperand(add_name), IntConstantOperand(d), 'int', 'int'))
             br_name = self.get_tmp()
             latch_block.block.append(
-                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), IdOperand(mul_name), None, 'int',
+                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), IdOperand(mul_name), 'int',
                              'int'))
             latch_block.block.append(IsTrueInstruction(IdOperand(br_name)))
             latch_block.add_output_connector(header_block)
@@ -1178,26 +1125,26 @@ class Context:
             cycle_enter.block += end[1:]
             div_name = self.get_tmp()
             cycle_enter.block.append(
-                BinaryAssign('int', div_name, "div", end[0], IntConstantOperand(d), None, 'int', 'int'))
+                BinaryAssign('int', div_name, "div", end[0], IntConstantOperand(d), 'int', 'int'))
             mul_name = self.get_tmp()
             cycle_enter.block.append(
-                BinaryAssign('int', mul_name, '*', IdOperand(div_name), IntConstantOperand(d), None, 'int', 'int'))
+                BinaryAssign('int', mul_name, '*', IdOperand(div_name), IntConstantOperand(d), 'int', 'int'))
             cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!1", IdOperand(mul_name), None, None))
             br_name = self.get_tmp()
             cycle_enter.block.append(
-                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), end[0], None, 'int', 'int'))
+                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), end[0], 'int', 'int'))
             cycle_enter.block.append(IsTrueInstruction(IdOperand(br_name)))
             header_block = Vertex.init_empty_vertex()
             cycle_enter.add_output_connector(header_block)
             header_block.add_input_connector(cycle_enter)
             latch_block = Vertex.init_empty_vertex()
             latch_block.block.append(
-                BinaryAssign('int', indexes[i] + "!1", "+", IdOperand(indexes[i] + "!1"), IntConstantOperand(1), None,
+                BinaryAssign('int', indexes[i] + "!1", "+", IdOperand(indexes[i] + "!1"), IntConstantOperand(1),
                              'int', 'int'))
             latch_block.block += end[1:]
             br_name = self.get_tmp()
             latch_block.block.append(
-                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), end[0], None, 'int', 'int'))
+                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), end[0], 'int', 'int'))
             latch_block.block.append(IsTrueInstruction(IdOperand(br_name)))
             latch_block.add_output_connector(header_block)
             header_block.add_input_connector(latch_block)
@@ -1314,6 +1261,151 @@ class Context:
 
     def skewed_tiling(self, nest, indexes, distances):
         skew_matrix = self.get_skew_matrix(distances)
+        print(skew_matrix)
+        n_cycles = len(nest)
+        if n_cycles == 2:
+            tile_sizes = tile_sizes1
+        else:
+            tile_sizes = tile_sizes2
+        cycles_pairs = []
+        enter_al, after_all = self.get_cycle_blocks(nest[0])
+        enter_all = enter_al.input_vertexes[0]
+        self.graph.vertexes.remove(enter_al)
+        body = Vertex.init_empty_vertex()
+        body.block = nest[-1][2].block
+        for i in range(n_cycles):
+            d = tile_sizes[i]
+            latch = nest[i][0]
+            enter, after = self.get_cycle_blocks(nest[i])
+            start = None
+            for instruction in enter.block[::-1]:
+                if isinstance(instruction, AtomicAssign) and instruction.value == indexes[i]:
+                    start = self.get_full_exp_instr(instruction, enter.block)
+            cmp = latch.block[-2]
+            end = None
+            if isinstance(cmp.right, IdOperand) and "$" in cmp.right.value:
+                for instr in latch.block:
+                    if instr.value == cmp.right.value:
+                        end = self.get_full_exp_instr(instr, latch.block)
+                        break
+            else:
+                end = [cmp.right]
+            cycle_enter = Vertex.init_empty_vertex()
+            cycle_enter.block += start[1:]
+            cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!0", start[0], None, None))
+            cycle_enter.block += end[1:]
+            cmp_name = self.get_tmp()
+            cycle_enter.block.append(
+                BinaryAssign('int', cmp_name, "div", end[0], IntConstantOperand(d), 'int', 'int'))
+            br_name = self.get_tmp()
+            cycle_enter.block.append(
+                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!0"), IdOperand(cmp_name), 'int',
+                             'int'))
+            cycle_enter.block.append(IsTrueInstruction(IdOperand(br_name)))
+            header_block = Vertex.init_empty_vertex()
+            cycle_enter.add_output_connector(header_block)
+            header_block.add_input_connector(cycle_enter)
+            latch_block = Vertex.init_empty_vertex()
+            latch_block.block.append(
+                BinaryAssign('int', indexes[i] + "!0", "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1),
+                             'int', 'int'))
+            latch_block.block += end[1:]
+            cmp_name = self.get_tmp()
+            latch_block.block.append(
+                BinaryAssign('int', cmp_name, "div", end[0], IntConstantOperand(d), 'int', 'int'))
+            br_name = self.get_tmp()
+            latch_block.block.append(
+                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!0"), IdOperand(cmp_name), 'int',
+                             'int'))
+            latch_block.block.append(IsTrueInstruction(IdOperand(br_name)))
+            latch_block.add_output_connector(header_block)
+            header_block.add_input_connector(latch_block)
+            cycle1 = (cycle_enter, header_block, latch_block)
+
+            cycle_enter = Vertex.init_empty_vertex()
+            init_tmp = self.get_tmp()
+            cycle_enter.block.append(
+                BinaryAssign('int', init_tmp, '*', IdOperand(indexes[i] + "!0"), IntConstantOperand(d), 'int',
+                             'int'))
+            cycle_enter.block.append(AtomicAssign('int', indexes[i] + "!1", IdOperand(init_tmp), None, None))
+            add_name = self.get_tmp()
+            cycle_enter.block.append(
+                BinaryAssign('int', add_name, "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1), 'int',
+                             'int'))
+            mul_name = self.get_tmp()
+            cycle_enter.block.append(
+                BinaryAssign('int', mul_name, '*', IdOperand(add_name), IntConstantOperand(d), 'int', 'int'))
+            br_name = self.get_tmp()
+            cycle_enter.block.append(
+                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), IdOperand(mul_name), 'int',
+                             'int'))
+            cycle_enter.block.append(IsTrueInstruction(IdOperand(br_name)))
+            header_block = Vertex.init_empty_vertex()
+            cycle_enter.add_output_connector(header_block)
+            header_block.add_input_connector(cycle_enter)
+            latch_block = Vertex.init_empty_vertex()
+            latch_block.block.append(
+                BinaryAssign('int', indexes[i] + "!1", "+", IdOperand(indexes[i] + "!1"), IntConstantOperand(1),
+                             'int', 'int'))
+            add_name = self.get_tmp()
+            latch_block.block.append(
+                BinaryAssign('int', add_name, "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1), 'int',
+                             'int'))
+            mul_name = self.get_tmp()
+            latch_block.block.append(
+                BinaryAssign('int', mul_name, '*', IdOperand(add_name), IntConstantOperand(d), 'int', 'int'))
+            br_name = self.get_tmp()
+            latch_block.block.append(
+                BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), IdOperand(mul_name), 'int',
+                             'int'))
+            latch_block.block.append(IsTrueInstruction(IdOperand(br_name)))
+            latch_block.add_output_connector(header_block)
+            header_block.add_input_connector(latch_block)
+            cycle2 = (cycle_enter, header_block, latch_block)
+            cycles_pairs.append((cycle1, cycle2))
+
+        for index in indexes:
+            self.names.remove((index, "int"))
+            self.names.add((index + "!0", "int"))
+            self.names.add((index + "!1", "int"))
+            self.replace_name(body, index, index + "!1")
+
+        one = [a for a, b, in cycles_pairs]
+        two = [b for a, b in cycles_pairs]
+        cycles_pairs = one + two
+        mid = len(cycles_pairs) // 2
+        last = cycles_pairs[-1]
+        for i in range(len(cycles_pairs) - 1, mid, -1):
+            cycles_pairs[i] = cycles_pairs[i - 1]
+        cycles_pairs[mid] = last
+        for vertex in nest[0]:
+            self.graph.vertexes.remove(vertex)
+        enter_all_out = []
+        for out in enter_all.output_vertexes:
+            if out.number != enter_al.number:
+                enter_all_out.append(out)
+        enter_all.output_vertexes = enter_all_out
+        after_all.input_vertexes = []
+        enter, after = enter_all, after_all
+        body_copy = deepcopy(body)
+        body_copy.replace_number()
+        for i, cycle in enumerate(cycles_pairs):
+            for elem in cycle:
+                self.graph.vertexes.append(elem)
+            cycle[0].add_input_connector(enter)
+            enter.add_output_connector(cycle[0])
+            cycle[0].add_output_connector(after)
+            after.add_input_connector(cycle[0])
+            cycle[2].add_output_connector(after)
+            after.add_input_connector(cycle[2])
+            enter = cycle[1]
+            after = cycle[2]
+            if i == len(cycles_pairs) - 1:
+                cycle[1].add_output_connector(body)
+                body.add_input_connector(cycle[1])
+                body.add_output_connector(cycle[2])
+                cycle[2].add_input_connector(body)
+                self.graph.vertexes.append(body)
 
     def tiling(self):
         loop_nests = self.graph.find_loop_nests()

@@ -4,7 +4,7 @@ from code_builder import *
 import argparse
 
 
-def opt_pass(tree, j):
+def opt_pass(tree, j, tiling_flag, vectorisation_flag):
     changed = False
     if j <= 2:
         is_preheader = False
@@ -23,7 +23,8 @@ def opt_pass(tree, j):
         if j > 1:
             changed = builder.contexts[func.name].loop_invariant_code_motion(is_preheader) or changed
         elif j == 1:
-            builder.contexts[func.name].tiling()
+            if tiling_flag:
+                builder.contexts[func.name].tiling()
         # Построение дерева доминаторов
         builder.contexts[func.name].graph.dfs()
         builder.contexts[func.name].graph.build_dominators_tree()
@@ -33,6 +34,8 @@ def opt_pass(tree, j):
         builder.contexts[func.name].place_phi()
         # Переименовывание переменных
         builder.contexts[func.name].change_numeration()
+        if func.name == 'tile' and j == 0:
+            builder.print_graph("out.txt")
         # Constant_propagation
         changed = builder.contexts[func.name].constant_propagation() or changed
         # print(func.name, changed)
@@ -50,7 +53,7 @@ def opt_pass(tree, j):
     return changed
 
 
-def generate_tests():
+def generate_tests(tiling_flag, vectorisation_flag):
     n_tests = 7
     for i in range(1, n_tests + 1):
         builder.contexts = {}
@@ -66,7 +69,7 @@ def generate_tests():
         changed = True
         j = 0
         while changed:
-            changed = opt_pass(tree, j)
+            changed = opt_pass(tree, j, tiling_flag, vectorisation_flag)
             j += 1
         print(f"Тест {i} завершился за {j} пассов")
         builder.set_labels()
@@ -76,7 +79,7 @@ def generate_tests():
         code_builder.generate_code()
 
 
-def generate_file(filename):
+def generate_file(filename, tiling_flag, vectorisation_flag):
     builder.contexts = {}
     tree = parse(filename)
     tree.generate()
@@ -87,7 +90,7 @@ def generate_file(filename):
     j = 0
     while changed:
         j += 1
-        changed = opt_pass(tree, j)
+        changed = opt_pass(tree, j, tiling_flag, vectorisation_flag)
     builder.set_labels()
     code_builder = CodeBuilder(tree.funcDefs, builder, -1)
     code_builder.allocate_registers()
@@ -97,8 +100,10 @@ def generate_file(filename):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("filename", nargs="?", default=None)
+    parser.add_argument("--tiling", '-t', action='store_true')
+    parser.add_argument("--vectorisation", action='store_true')
     args = parser.parse_args()
     if args.filename:
-        generate_file(args.filename)
+        generate_file(args.filename, args.tiling, args.vectorisation)
     else:
-        generate_tests()
+        generate_tests(args.tiling, args.vectorisation)

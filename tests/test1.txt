@@ -1,7 +1,7 @@
 int tile(int u[m], int n) {
-    for (i = 0 to n) {
-        for (j = 1 to m) {
-            u[j] = u[j] + u[j-1];
+    for (i = 0 to 200) {
+        for (j = 0 to 4999) {
+            u[j + 1] = u[j + 1] + u[j];
         }
     }
     return u[m - 1];

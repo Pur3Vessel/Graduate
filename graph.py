@@ -78,8 +78,8 @@ class Vertex:
                     file.write("\t" + str(self.number) + "->" + str(elem.number) + "[label=\"N\"]" + "\n")
             else:
                 file.write("\t" + str(self.number) + "->" + str(elem.number) + "\n")
-        # for elem in self.children:
-        #    file.write("\t" + str(self.number) + "->" + str(elem.number) + " [color = green]")
+        for elem in self.children:
+            file.write("\t" + str(self.number) + "->" + str(elem.number) + " [color = green]")
 
     def to_graph_rd(self, file, graph):
         file.write("\t" + str(self.number) + "[label=\"\n")
@@ -340,13 +340,15 @@ class Graph:
         for elem in self.vertexes:
             if elem.idom is not None:
                 elem.idom.add_child(elem)
+        first.add_child(first.output_vertexes[0])
 
     def get_all_assign(self, s):
         result = set()
         for elem in self.vertexes:
             for opp in elem.block:
-                if (isinstance(opp, UnaryAssign) or isinstance(opp, BinaryAssign) or isinstance(opp,
-                                                                                                AtomicAssign)) and opp.value == s and opp.dimentions is None:
+                if (isinstance(opp, UnaryAssign) or isinstance(opp, BinaryAssign)) and opp.value == s:
+                    result.add(elem)
+                if isinstance(opp, AtomicAssign) and opp.value == s and opp.dimentions is None:
                     result.add(elem)
         return result
 
@@ -388,9 +390,9 @@ class Graph:
         stack = [pair[0]]
         while len(stack) != 0:
             v = stack.pop()
-            v.checked = True
-            if v != pair[0] and v != pair[1]:
+            if v != pair[0] and v != pair[1] and not v.checked:
                 cycle.append(v)
+            v.checked = True
             for out in v.input_vertexes:
                 if not out.checked:
                     stack.append(out)

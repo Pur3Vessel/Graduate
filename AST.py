@@ -505,9 +505,9 @@ class AssignAction(Action):
                 print("что-то не так")
         elif isinstance(self.assign, BinOp):
             return BinaryAssign(type, value, self.assign.op, IdOperand(self.assign.left.name),
-                                IdOperand(self.assign.right.name), None, str(self.assign.left.type), str(self.assign.right.type))
+                                IdOperand(self.assign.right.name), str(self.assign.left.type), str(self.assign.right.type))
         elif isinstance(self.assign, UnaryOp):
-            return UnaryAssign(type, value, self.assign.op, IdOperand(self.assign.exp.name), None)
+            return UnaryAssign(type, value, self.assign.op, IdOperand(self.assign.exp.name))
         else:
             print("Что-то не так")
 
@@ -873,7 +873,7 @@ class ForAction(Action):
         place_assigns(end_assigns)
         new_tmp = "tmp$" + str(tmp_version)
         tmp_version += 1
-        cond_IR = BinaryAssign("bool", new_tmp, "<", IdOperand(self.var_name), IdOperand(end_tmp), None, "int", "int")
+        cond_IR = BinaryAssign("bool", new_tmp, "<", IdOperand(self.var_name), IdOperand(end_tmp), "int", "int")
         builder.add_expression(cond_IR)
         end_IR = IsTrueInstruction(IdOperand(new_tmp))
         builder.add_expression(end_IR)
@@ -885,7 +885,7 @@ class ForAction(Action):
 
         step_assigns, step_tmp = simplify_expression(self.step)
         place_assigns(step_assigns)
-        step_IR = BinaryAssign("int", self.var_name, "+", IdOperand(self.var_name), IdOperand(step_tmp), None, "int", "int")
+        step_IR = BinaryAssign("int", self.var_name, "+", IdOperand(self.var_name), IdOperand(step_tmp), "int", "int")
         builder.add_expression(step_IR)
         builder.context.latches.append(latch)
 
@@ -893,7 +893,7 @@ class ForAction(Action):
         place_assigns(end_assigns)
         new_tmp = "tmp$" + str(tmp_version)
         tmp_version += 1
-        cond_IR = BinaryAssign("bool", new_tmp, "<", IdOperand(self.var_name), IdOperand(end_tmp), None, "int", "int")
+        cond_IR = BinaryAssign("bool", new_tmp, "<", IdOperand(self.var_name), IdOperand(end_tmp),  "int", "int")
         builder.add_expression(cond_IR)
         end_IR = IsTrueInstruction(IdOperand(new_tmp))
         builder.add_expression(end_IR)

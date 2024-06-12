@@ -1,6 +1,42 @@
 from register_allocator import *
 from IR import *
 
+MIN_FUNC = """
+min:
+    push ebp
+    mov ebp, esp
+    push ebx
+    mov eax, [ebp+8] 
+    mov ebx, [ebp+12]
+
+    cmp eax, ebx
+    jle .min_done
+    mov eax, ebx
+    
+.min_done:
+    pop ebx
+    pop ebp
+    ret
+"""
+
+MAX_FUNC = """
+max:
+    push ebp
+    mov ebp, esp
+    push ebx
+    mov eax, [ebp+8]
+    mov ebx, [ebp+12]
+
+    cmp eax, ebx
+    jge .max_done
+    mov eax, ebx
+
+.max_done:
+    pop ebx
+    pop ebp
+    ret
+"""
+
 
 class CodeBuilder:
     def __init__(self, func_defs, builder, i):
@@ -24,30 +60,30 @@ class CodeBuilder:
         code = ""
         for context_builder in self.context_builders.values():
             context_builder.generate_context()
-        #scalar_variables, array_adresses = None, None
-        #for context_builder in self.context_builders.values():
+        # scalar_variables, array_adresses = None, None
+        # for context_builder in self.context_builders.values():
         #    if context_builder.is_entry:
         #        scalar_variables, array_adresses = context_builder.get_entry_info()
         #        break
-        #bss_vars = []
-        #for var, label in scalar_variables.items():
+        # bss_vars = []
+        # for var, label in scalar_variables.items():
         #    if label not in regs and label not in xmm_regs:
         #        bss_vars.append(var)
-        #if len(bss_vars) != 0:
+        # if len(bss_vars) != 0:
         #    code += "section .bss\n"
         #    for var in bss_vars:
         #        code += "\t" + var + " resd 1\n"
-        #decl_arrays = []
-        #for arr in array_adresses.keys():
+        # decl_arrays = []
+        # for arr in array_adresses.keys():
         #    decl_arrays.append(arr)
-        #if len(decl_arrays) != 0:
+        # if len(decl_arrays) != 0:
         #    code += "section .data\n"
         #    for arr in decl_arrays:
         #        code += "\t" + arr + " dd " + ", ".join(
         #            list(map(lambda x: str(x), flatten(array_adresses[arr][3])))) + "\n"
 
         code += "section .text\n"
-        code += "\tglobal "
+        code += "global "
         for i, context_builder in enumerate(self.context_builders.values()):
             if not context_builder.is_entry:
                 if i == 0:
@@ -59,6 +95,10 @@ class CodeBuilder:
         for context_builder in self.context_builders.values():
             if not context_builder.is_entry:
                 code += str(context_builder)
+        code += "\n"
+        code += MIN_FUNC
+        code += "\n"
+        code += MAX_FUNC
         if self.i == -1:
             with open(f"out.asm", 'w') as file:
                 file.write(code)
@@ -81,7 +121,7 @@ class ContextBuilder:
 
     def allocate_registers(self):
         self.context.build_lives()
-        #if self.i == 3:
+        # if self.i == 3:
         #    for label, lives in self.context.labels_to_live.items():
         #        print(label, lives)
         k_reg = len(color_to_regs)
@@ -91,7 +131,7 @@ class ContextBuilder:
 
         int_ifg.build(self.context, True, [], [])
         spill_var = int_ifg.try_color()
-        #if self.i == 1 and self.func_name == "tile":
+        # if self.i == 1 and self.func_name == "tile":
         #    int_ifg.to_graph("IFG/ifg.txt")
 
         spill_vars = []
@@ -188,14 +228,6 @@ class ContextBuilder:
         for param in array_params:
             self.array_adresses[param[0]] = (param[1], True, param[2])
 
-        #if self.i == 2:
-        #    for var, label in self.scalar_variables.items():
-        #        print(var, label)
-        #    print("=========")
-        #    for var, label in self.array_adresses.items():
-        #        print(var, label)
-        #    print("-------------")
-
     def get_entry_info(self):
         if self.is_entry:
             return self.scalar_variables, self.array_adresses
@@ -232,9 +264,30 @@ class ContextBuilder:
                         code.append(MoveSS(reg, "[ebp " + sdvig + "]"))
         return code, used_xmm
 
+    def compute_used_regs(self):
+        for v in self.context.graph.vertexes:
+            for instruction in v.block:
+                if self.context.graph.instructions_to_labels[instruction] not in self.context.labels_to_live:
+                    instruction.used_regs = []
+                    continue
+                lives = self.context.labels_to_live[self.context.graph.instructions_to_labels[instruction]]
+                used_regs = []
+                for var in lives:
+                    sp_var = var.split("_")
+                    if len(sp_var) > 1 and sp_var[0] == "tmp":
+                        var = var.replace("_", "$")
+                    if self.scalar_variables[var] in regs or self.scalar_variables[var] in xmm_regs:
+                        used_regs.append(self.scalar_variables[var])
+                instruction.used_regs = used_regs
+
     def generate_context(self):
         self.code = []
         self.context.quit_ssa()
+        # for instruction, label in self.context.graph.instructions_to_labels.items():
+        #        print("====================")
+        # for label, lives in self.context.labels_to_live.items():
+        #    print(label, lives)
+        self.compute_used_regs()
         entry_code, used_xmm = self.generate_entry_block()
         self.code += entry_code
         first = self.context.graph.vertexes[1]
@@ -256,10 +309,12 @@ class ContextBuilder:
         compared = None
         for i, instruction in enumerate(v.block):
             if isinstance(instruction, IsTrueInstruction):
-                self.code += instruction.get_low_ir_branch(self.scalar_variables, v.output_vertexes, phi_assigns, compared)
+                self.code += instruction.get_low_ir_branch(self.scalar_variables, v.output_vertexes, phi_assigns,
+                                                           compared)
                 phi_assigns = []
             elif isinstance(instruction, ReturnInstruction):
-                self.code += instruction.get_low_ir_return(self.scalar_variables, self.is_entry, self.func_type, used_xmm)
+                self.code += instruction.get_low_ir_return(self.scalar_variables, self.is_entry, self.func_type,
+                                                           used_xmm)
             elif isinstance(instruction, AtomicAssign):
                 if instruction.is_phi:
                     phi_assigns += instruction.get_low_ir_arr(self.scalar_variables, self.array_adresses)

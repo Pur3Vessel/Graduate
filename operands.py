@@ -1,8 +1,16 @@
 from lattice import *
 from low_IR import *
+import struct
 
 
-def generate_array_index_code(name, dimentions, scalar_variables, array_adresses, used_regs):
+def float_to_ieee754(value):
+    value = float(value)
+    packed_value = struct.pack('>f', value)
+    ieee754_hex = packed_value.hex()
+    return "0x" + ieee754_hex
+
+
+def generate_array_index_code(name, dimentions, scalar_variables, array_adresses, used_regs, used_regs_i):
     code = []
     pop_intr = []
     info = array_adresses[name]
@@ -19,7 +27,8 @@ def generate_array_index_code(name, dimentions, scalar_variables, array_adresses
             if reg not in used_regs and reg not in dimentions_regs:
                 used_regs.append(reg)
                 r = reg
-                code.append(Push(reg))
+                if reg in used_regs_i:
+                    code.append(Push(reg))
                 code.append(Move(reg, addr))
                 addr = reg
                 break
@@ -49,7 +58,8 @@ def generate_array_index_code(name, dimentions, scalar_variables, array_adresses
                     index_regs[i] = reg
 
     for reg in index_regs:
-        code.append(Push(reg))
+        if reg in used_regs_i:
+            code.append(Push(reg))
 
     if n_dims == 1:
         dim_reg = dimentions_regs[0]
@@ -69,9 +79,11 @@ def generate_array_index_code(name, dimentions, scalar_variables, array_adresses
         dim_reg = dimentions[-1].get_low_ir(scalar_variables)
         code.append(Add(index_regs[0], dim_reg))
     for reg in index_regs[::-1]:
-        pop_intr.append(Pop(reg))
+        if reg in used_regs_i:
+            pop_intr.append(Pop(reg))
     if info[1]:
-        pop_intr.append(Pop(r))
+        if r in used_regs_i:
+            pop_intr.append(Pop(r))
     code.append(Shl(index_regs[0], "2"))
     src = "[" + addr + " + " + index_regs[0] + ']'
     return code, src, pop_intr
@@ -104,7 +116,7 @@ class FloatConstantOperand(Operand):
         return str(self.value)
 
     def get_low_ir(self, scalar_variables):
-        return str(self.value)
+        return float_to_ieee754(str(self.value))
 
 
 class IntConstantOperand(Operand):
@@ -311,14 +323,8 @@ class FuncCallOperand(Operand):
                     load_params.append(Lea("eax", info[0]))
                     load_params.append(Push("eax"))
                 params_sdvig += 4
-            else:
-                reg = arg.get_low_ir(scalar_variables)
-                load_params.append(Push(reg))
-                params_sdvig += 4
-
         if params_sdvig != 0:
             remove_params.append(Add("esp", str(params_sdvig)))
-
         return load_params, remove_params
 
 

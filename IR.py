@@ -1,6 +1,5 @@
 from operands import *
 import functools
-import struct
 
 
 def get_reg(use_regs):
@@ -34,16 +33,6 @@ def get_set_cmp(op):
         return Setge("al")
     if op == "<=":
         return Setle("al")
-
-
-def is_cmp_op(op):
-    return op == "==" or op == "!=" or op == ">" or op == "<" or op == ">=" or op == "<="
-
-
-def float_to_ieee754(value):
-    packed_value = struct.pack('>f', value)
-    ieee754_hex = packed_value.hex()
-    return "0x" + ieee754_hex
 
 
 def nested_list_to_str(nested_list):
@@ -101,6 +90,9 @@ class BinaryOperations(Enum):
 
 
 class IR(ABC):
+    def __init__(self):
+        self.used_regs = None
+
     def get_low_ir(self, scalar_variables):
         return []
 
@@ -112,6 +104,7 @@ class NullInstruction(IR):
 
 class FuncDefInstruction(IR):
     def __init__(self, type, name, arguments):
+        super().__init__()
         self.type = type
         self.name = name
         self.arguments = arguments
@@ -148,6 +141,7 @@ class FuncDefInstruction(IR):
 
 class ArrayInitInstruction(IR):
     def __init__(self, type, name, dimentions, assign):
+        super().__init__()
         self.type = type
         self.name = name
         self.dimentions = dimentions
@@ -187,28 +181,23 @@ class ArrayInitInstruction(IR):
         n_elems = functools.reduce(lambda x, y: x * y, self.dimentions)
         sdvig = 0
         if self.assign is None:
-            adress = array_adresses[self.name][0].replace("[", "").replace("]", "")
-            for i in range(n_elems):
-                if self.type == "float":
-                    code.append(Move("[" + adress + " + " + str(sdvig) + "]", "dword " + str(0)))
-                else:
-                    code.append(Move("[" + adress + " + " + str(sdvig) + "]", "dword " + str(0)))
-                sdvig += 4
+            elems = [0] * n_elems
         else:
             elems = flatten(self.assign)
-            adress = array_adresses[self.name][0].replace("[", "").replace("]", "")
-            for i in range(n_elems):
-                if self.type == "float":
-                    code.append(
-                        Move("[" + adress + " + " + str(sdvig) + "]", "dword " + float_to_ieee754(elems[i])))
-                else:
-                    code.append(Move("[" + adress + " + " + str(sdvig) + "]", "dword " + str(elems[i])))
-                sdvig += 4
+        adress = array_adresses[self.name][0].replace("[", "").replace("]", "")
+        for i in range(n_elems):
+            if self.type == "float":
+                code.append(
+                    Move("[" + adress + " + " + str(sdvig) + "]", "dword " + float_to_ieee754(elems[i])))
+            else:
+                code.append(Move("[" + adress + " + " + str(sdvig) + "]", "dword " + str(elems[i])))
+            sdvig += 4
         return code
 
 
 class AtomicAssign(IR):
     def __init__(self, type, value, argument, dimentions, dimentions_variables):
+        super().__init__()
         self.type = type
         self.value = value
         self.argument = argument
@@ -347,8 +336,6 @@ class AtomicAssign(IR):
         code = []
         if self.dimentions is None:
             reg = scalar_variables[self.value]
-            if reg == "spilled":
-                reg = "Место в памяти для " + self.value
             if isinstance(self.argument, (IntConstantOperand, BoolConstantOperand, FloatConstantOperand, IdOperand)):
                 if self.type == "float":
                     if isinstance(self.argument, (IntConstantOperand, FloatConstantOperand)):
@@ -358,16 +345,26 @@ class AtomicAssign(IR):
                     if argument_reg not in xmm_regs:
                         code.append(Sub("esp", "4"))
                         code.append(Move("dword [esp]", argument_reg))
-                        code.append(MoveSS(reg, "[esp]"))
+                        if reg in xmm_regs:
+                            code.append(MoveSS(reg, "[esp]"))
+                        else:
+                            code.append(MoveSS("xmm0", "[esp]"))
+                            code.append(MoveSS(reg, "xmm0"))
                         code.append(Add("esp", "4"))
                     else:
                         code.append(MoveSS(reg, argument_reg))
                 else:
                     argument_reg = self.argument.get_low_ir(scalar_variables)
-                    code.append(Move(reg, argument_reg))
+                    if reg not in regs and argument_reg not in regs:
+                        code.append(Move("eax", argument_reg))
+                        code.append(Move(reg, "eax"))
+                    else:
+                        code.append(Move(reg, argument_reg))
             if isinstance(self.argument, FuncCallOperand):
-                code.append(Push("ecx"))
-                code.append(Push("edx"))
+                if "ecx" in self.used_regs:
+                    code.append(Push("ecx"))
+                if "edx" in self.used_regs:
+                    code.append(Push("edx"))
                 load_params, remove_params = self.argument.get_call_instructions(scalar_variables, array_adresses)
                 code += load_params
                 code.append(Call(self.argument.name))
@@ -382,46 +379,59 @@ class AtomicAssign(IR):
                 else:
                     code.append(Move(reg, "eax"))
                 code += remove_params
-                code.append(Pop("edx"))
-                code.append(Pop("ecx"))
+                if "edx" in self.used_regs:
+                    code.append(Pop("edx"))
+                if "ecx" in self.used_regs:
+                    code.append(Pop("ecx"))
             if isinstance(self.argument, ArrayUseOperand):
-                reg = scalar_variables[self.value]
                 arr_code, src, pop_intr = generate_array_index_code(self.argument.name, self.argument.indexing,
-                                                                    scalar_variables, array_adresses, [reg])
+                                                                    scalar_variables, array_adresses, [reg], self.used_regs)
                 code += arr_code
                 if self.type == "float":
-                    code.append(MoveSS(reg, src))
+                    if reg not in xmm_regs:
+                        code.append(MoveSS("xmm0", src))
+                        code.append(MoveSS(reg, "xmm0"))
+                    else:
+                        code.append(MoveSS(reg, src))
                 else:
-                    code.append(Move(reg, src))
+                    if reg not in regs:
+                        code.append(Move("eax", src))
+                        code.append(Move(reg, "eax"))
+                    else:
+                        code.append(Move(reg, src))
                 code += pop_intr
             return code
         else:
             reg = self.argument.get_low_ir(scalar_variables)
             arr_code, src, pop_intr = generate_array_index_code(self.value, self.dimentions,
-                                                                scalar_variables, array_adresses, [reg])
+                                                                scalar_variables, array_adresses, [reg], self.used_regs)
             code += arr_code
             if self.type == "float":
-                code.append(MoveSS(src, reg))
+                if reg not in xmm_regs:
+                    code.append(MoveSS("xmm0", reg))
+                    code.append(MoveSS(src, "xmm0"))
+                else:
+                    code.append(MoveSS(src, reg))
             else:
-                code.append(Move(src, reg))
+                if reg not in regs:
+                    code.append(Move("eax", reg))
+                    code.append(Move(src, "eax"))
+                else:
+                    code.append(Move(src, reg))
             code += pop_intr
             return code
 
 
 class UnaryAssign(IR):
-    def __init__(self, type, value, op, argument, dimentions):
+    def __init__(self, type, value, op, argument):
+        super().__init__()
         self.type = type
         self.value = value
         self.op = op
         self.arg = argument
-        self.dimentions = dimentions
 
     def __str__(self):
         d = ""
-        if self.dimentions is not None:
-            d = "["
-            d += ", ".join(str(dim) for dim in self.dimentions)
-            d += "]"
         return self.type + " " + self.value + d + " <- " + self.op + " " + str(self.arg)
 
     def rename_operands(self, name, version):
@@ -434,10 +444,6 @@ class UnaryAssign(IR):
         return [self.arg]
 
     def is_use_op(self, value):
-        if self.dimentions is not None:
-            for d in self.dimentions:
-                if d.value == value:
-                    return True
         if isinstance(self.arg, (IntConstantOperand, BoolConstantOperand, FloatConstantOperand)):
             return False
         return self.arg.value == value
@@ -473,13 +479,6 @@ class UnaryAssign(IR):
                         assert type(val) is bool
                         self.arg = BoolConstantOperand(val)
                     return True
-        if self.dimentions is not None:
-            for i, d in enumerate(self.dimentions):
-                if d.value in lattice.sl:
-                    val = lattice.sl[d.value]
-                    if not isinstance(val, ConstantLatticeElement):
-                        if type(val) is int:
-                            self.dimentions[i] = IntConstantOperand(val)
         return False
 
     def is_def(self, op):
@@ -491,14 +490,6 @@ class UnaryAssign(IR):
             self.arg = IdOperand(self.arg.value.split("_")[0])
 
     def replace_operand(self, name, new_name):
-        if self.dimentions is not None:
-            new_dims = []
-            for d in self.dimentions:
-                if d == name:
-                    new_dims.append(IdOperand(new_name))
-                else:
-                    new_dims.append(d)
-            self.dimentions = new_dims
         if self.arg.value == name:
             self.arg = IdOperand(new_name)
 
@@ -513,48 +504,47 @@ class UnaryAssign(IR):
 
     def get_low_ir(self, scalar_variables):
         code = []
-        if self.dimentions is None:
-            reg = scalar_variables[self.value]
-            if reg == "spilled":
-                reg = "Место в памяти для " + self.value
-            argument_reg = self.arg.get_low_ir(scalar_variables)
-            if self.type == "float":
-                code.append(MoveSS("xmm0", argument_reg))
-                code.append(Sub("esp", "4"))
-                code.append(Move("[esp]", "dword 0x80000000"))
-                code.append(MoveSS("xmm1", "dword [esp]"))
-                code.append(Add("esp", "4"))
-                code.append(Xorps("xmm0", "xmm1"))
-                code.append(MoveSS(reg, "xmm0"))
-            else:
+        reg = scalar_variables[self.value]
+        argument_reg = self.arg.get_low_ir(scalar_variables)
+        if self.type == "float":
+            code.append(MoveSS("xmm0", argument_reg))
+            code.append(Sub("esp", "4"))
+            code.append(Move("[esp]", "dword 0x80000000"))
+            code.append(MoveSS("xmm1", "dword [esp]"))
+            code.append(Add("esp", "4"))
+            code.append(Xorps("xmm0", "xmm1"))
+            code.append(MoveSS(reg, "xmm0"))
+        else:
+            if reg == argument_reg:
+                dword = "" if reg in regs else "dword "
                 if self.op == "not":
-                    code.append(Move("eax", argument_reg))
-                    code.append(Not("eax"))
-                    code.append(Move(reg, "eax"))
-                if self.op == "-":
-                    code.append(Move("eax", argument_reg))
-                    code.append(Neg("eax"))
-                    code.append(Move(reg, "eax"))
-            return code
+                    code.append(Not(dword + reg))
+                else:
+                    code.append(Neg(dword + reg))
+            else:
+                target = "eax"
+                code.append(Move(target, argument_reg))
+                if self.op == "not":
+                    code.append(Not(target))
+                else:
+                    code.append(Neg(target))
+                code.append(Move(reg, target))
+        return code
 
 
 class BinaryAssign(IR):
-    def __init__(self, type, value, op, left, right, dimentions, left_type, right_type):
+    def __init__(self, type, value, op, left, right, left_type, right_type):
+        super().__init__()
         self.type = type
         self.value = value
         self.op = op
         self.left = left
         self.right = right
-        self.dimentions = dimentions
         self.left_type = left_type
         self.right_type = right_type
 
     def __str__(self):
         d = ""
-        if self.dimentions is not None:
-            d = "["
-            d += ", ".join(str(dim) for dim in self.dimentions)
-            d += "]"
         return self.type + " " + self.value + d + " <- " + str(self.left) + " " + self.op + " " + str(self.right)
 
     def rename_operands(self, name, version):
@@ -572,10 +562,6 @@ class BinaryAssign(IR):
         return [self.left, self.right]
 
     def is_use_op(self, value):
-        if self.dimentions is not None:
-            for d in self.dimentions:
-                if d.value == value:
-                    return True
         return self.left.value == value or self.right.value == value
 
     def lat_eval(self, lattice):
@@ -646,13 +632,6 @@ class BinaryAssign(IR):
                         assert type(val) is bool
                         self.right = BoolConstantOperand(val)
 
-        if self.dimentions is not None:
-            for i, d in enumerate(self.dimentions):
-                if d.value in lattice.sl:
-                    val = lattice.sl[d.value]
-                    if not isinstance(val, ConstantLatticeElement):
-                        if type(val) is int:
-                            self.dimentions[i] = IntConstantOperand(val)
         return changed
 
     def is_def(self, op):
@@ -668,13 +647,13 @@ class BinaryAssign(IR):
     def simplify(self):
         if self.op == "+":
             if isinstance(self.left, IntConstantOperand) and self.left.value == 0:
-                return AtomicAssign(self.type, self.value, self.right, self.dimentions, None)
+                return AtomicAssign(self.type, self.value, self.right, None, None)
             if isinstance(self.right, IntConstantOperand) and self.right.value == 0:
-                return AtomicAssign(self.type, self.value, self.left, self.dimentions, None)
+                return AtomicAssign(self.type, self.value, self.left, None, None)
 
         if self.op == "-":
             if isinstance(self.right, IntConstantOperand) and self.right.value == 0:
-                return AtomicAssign(self.type, self.value, self.left, self.dimentions, None)
+                return AtomicAssign(self.type, self.value, self.left, None, None)
 
         if self.op == "div" or self.op == "mod":
             if isinstance(self.right, IntConstantOperand) and self.right.value == 0:
@@ -683,26 +662,26 @@ class BinaryAssign(IR):
         if self.op == "and":
             if isinstance(self.left, BoolConstantOperand):
                 if not self.left.value:
-                    return AtomicAssign(self.type, self.value, BoolConstantOperand(False), self.dimentions, None)
+                    return AtomicAssign(self.type, self.value, BoolConstantOperand(False), None, None)
                 else:
-                    return AtomicAssign(self.type, self.value, self.right, self.dimentions,None)
+                    return AtomicAssign(self.type, self.value, self.right, None, None)
             if isinstance(self.right, BoolConstantOperand):
                 if not self.right.value:
-                    return AtomicAssign(self.type, self.value, BoolConstantOperand(False), self.dimentions, None)
+                    return AtomicAssign(self.type, self.value, BoolConstantOperand(False), None, None)
                 else:
-                    return AtomicAssign(self.type, self.value, self.left, self.dimentions, None)
+                    return AtomicAssign(self.type, self.value, self.left, None, None)
 
         if self.op == "or":
             if isinstance(self.left, BoolConstantOperand):
                 if not self.left.value:
-                    return AtomicAssign(self.type, self.value, self.right, self.dimentions, None)
+                    return AtomicAssign(self.type, self.value, self.right, None, None)
                 else:
-                    return AtomicAssign(self.type, self.value, BoolConstantOperand(True), self.dimentions, None)
+                    return AtomicAssign(self.type, self.value, BoolConstantOperand(True), None, None)
             if isinstance(self.right, BoolConstantOperand):
                 if not self.right.value:
-                    return AtomicAssign(self.type, self.value, self.left, self.dimentions, None)
+                    return AtomicAssign(self.type, self.value, self.left, None, None)
                 else:
-                    return AtomicAssign(self.type, self.value, self.left, self.dimentions, None)
+                    return AtomicAssign(self.type, self.value, self.left, None, None)
         return self
 
     def is_cmp(self):
@@ -713,15 +692,6 @@ class BinaryAssign(IR):
             self.left = IdOperand(new_name)
         if self.right.value == name:
             self.right = IdOperand(new_name)
-        if self.dimentions is not None:
-            new_dims = []
-            for d in self.dimentions:
-                print(d, name, new_name)
-                if d.value == name:
-                    new_dims.append(IdOperand(new_name))
-                else:
-                    new_dims.append(d)
-            self.dimentions = new_dims
 
     def replace_tmp(self, version):
         if len(self.value.split("$")) > 1:
@@ -746,6 +716,8 @@ class BinaryAssign(IR):
         if self.left_type == "int" and self.right_type == "int":
             code.append(Cmp(left_reg, dw + right_reg))
         else:
+            left_cmp = "xmm0"
+            right_cmp = "xmm1"
             if self.left_type == "int":
                 if left_reg in regs or (left_reg[0] == "[" and left_reg[-1] == "]"):
                     code.append(Cvtsi2ss("xmm0", left_reg))
@@ -755,7 +727,7 @@ class BinaryAssign(IR):
                     code.append(MoveSS("xmm0", "[esp]"))
                     code.append(Add("esp", "4"))
             else:
-                code.append(MoveSS("xmm0", left_reg))
+                left_cmp = left_reg
             if self.right_type == "int":
                 if right_reg in regs or (right_reg[0] == "[" and right_reg[-1] == "]"):
                     code.append(Cvtsi2ss("xmm1", right_reg))
@@ -765,8 +737,8 @@ class BinaryAssign(IR):
                     code.append(MoveSS("xmm1", "[esp]"))
                     code.append(Add("esp", "4"))
             else:
-                code.append(MoveSS("xmm1", right_reg))
-            code.append(Comiss("xmm0", "xmm1"))
+                right_cmp = right_reg
+            code.append(Comiss(left_cmp, right_cmp))
         return code, self.op
 
     def get_low_ir(self, scalar_variables):
@@ -775,295 +747,183 @@ class BinaryAssign(IR):
             self.left_type, self.right_type = self.right_type, self.left_type
             self.op = revert_cmp_op(self.op)
         code = []
-        if self.dimentions is None:
-            reg = scalar_variables[self.value]
-            if self.type == "float":
-                if self.op in ["+", "*"] and isinstance(self.left, (FloatConstantOperand, IntConstantOperand)):
-                    self.left, self.right = self.right, self.left
-                    self.left_type, self.right_type = self.right_type, self.left_type
-                if isinstance(self.left, (IntConstantOperand, FloatConstantOperand)):
-                    left_reg = float_to_ieee754(self.left.value)
-                else:
-                    left_reg = self.left.get_low_ir(scalar_variables)
-                if isinstance(self.right, (IntConstantOperand, FloatConstantOperand)):
-                    right_reg = float_to_ieee754(self.right.value)
-                else:
-                    right_reg = self.right.get_low_ir(scalar_variables)
-                overwrite = False
-                if left_reg in xmm_regs and left_reg == reg:
-                    overwrite = True
-                right_arg = "xmm1" if right_reg not in xmm_regs else right_reg
-                if self.op == "+":
-                    if not left_reg in xmm_regs:
-                        if left_reg in regs or (
-                                (left_reg[0] == "[" and left_reg[-1] == "]") and self.left_type == "int"):
-                            code.append(Cvtsi2ss("xmm0", left_reg))
-                        else:
-                            code.append(Sub("esp", "4"))
-                            code.append(Move("dword [esp]", left_reg))
-                            code.append(MoveSS("xmm0", "[esp]"))
-                            code.append(Add("esp", "4"))
-                    else:
-                        if not overwrite:
-                            code.append(MoveSS("xmm0", left_reg))
-                    if not right_reg in xmm_regs:
-                        if right_reg in regs or (
-                                (right_reg[0] == "[" and right_reg[-1] == "]") and self.right_type == "int"):
-                            code.append(Cvtsi2ss("xmm1", right_reg))
-                        else:
-                            code.append(Sub("esp", "4"))
-                            code.append(Move("dword [esp]", right_reg))
-                            code.append(MoveSS("xmm1", "[esp]"))
-                            code.append(Add("esp", "4"))
-                    else:
-                        if right_arg == "xmm1":
-                            code.append(MoveSS("xmm1", right_reg))
-                    if overwrite:
-                        code.append(Addss(left_reg, right_arg))
-                    else:
-                        code.append(Addss("xmm0", right_arg))
-                        code.append(MoveSS(reg, "xmm0"))
-                if self.op == "-":
-                    if not left_reg in xmm_regs:
-                        if left_reg in regs or (
-                                (left_reg[0] == "[" and left_reg[-1] == "]") and self.left_type == "int"):
-                            code.append(Cvtsi2ss("xmm0", left_reg))
-                        else:
-                            code.append(Sub("esp", "4"))
-                            code.append(Move("dword [esp]", left_reg))
-                            code.append(MoveSS("xmm0", "[esp]"))
-                            code.append(Add("esp", "4"))
-                    else:
-                        if not overwrite:
-                            code.append(MoveSS("xmm0", left_reg))
-                    if not right_reg in xmm_regs:
-                        if right_reg in regs or (
-                                (right_reg[0] == "[" and right_reg[-1] == "]") and self.right_type == "int"):
-                            code.append(Cvtsi2ss("xmm1", right_reg))
-                        else:
-                            code.append(Sub("esp", "4"))
-                            code.append(Move("dword [esp]", right_reg))
-                            code.append(MoveSS("xmm1", "[esp]"))
-                            code.append(Add("esp", "4"))
-                    else:
-                        if right_arg == "xmm1":
-                            code.append(MoveSS("xmm1", right_reg))
-                    if overwrite:
-                        code.append(Subss(left_reg, right_arg))
-                    else:
-                        code.append(Subss("xmm0", right_arg))
-                        code.append(MoveSS(reg, "xmm0"))
-                if self.op == "*":
-                    if not left_reg in xmm_regs:
-                        if left_reg in regs or (
-                                (left_reg[0] == "[" and left_reg[-1] == "]") and self.left_type == "int"):
-                            code.append(Cvtsi2ss("xmm0", left_reg))
-                        else:
-                            code.append(Sub("esp", "4"))
-                            code.append(Move("dword [esp]", left_reg))
-                            code.append(MoveSS("xmm0", "[esp]"))
-                            code.append(Add("esp", "4"))
-                    else:
-                        if not overwrite:
-                            code.append(MoveSS("xmm0", left_reg))
-                    if not right_reg in xmm_regs:
-                        if right_reg in regs or (
-                                (right_reg[0] == "[" and right_reg[-1] == "]") and self.right_type == "int"):
-                            code.append(Cvtsi2ss("xmm1", right_reg))
-                        else:
-                            code.append(Sub("esp", "4"))
-                            code.append(Move("dword [esp]", right_reg))
-                            code.append(MoveSS("xmm1", "[esp]"))
-                            code.append(Add("esp", "4"))
-                    else:
-                        if right_arg == "xmm1":
-                            code.append(MoveSS("xmm1", right_reg))
-                    if overwrite:
-                        code.append(Mulss(left_reg, right_arg))
-                    else:
-                        code.append(Mulss("xmm0", right_arg))
-                        code.append(MoveSS(reg, "xmm0"))
-                if self.op == "/":
-                    if isinstance(self.left, (IntConstantOperand, FloatConstantOperand)) and self.left.value == 1:
-                        if right_reg not in xmm_regs:
-                            if right_reg in regs or (
-                                    (right_reg[0] == "[" and right_reg[-1] == "]") and self.right_type == "int"):
-                                code.append(Cvtsi2ss("xmm1", right_reg))
-                            else:
-                                code.append(Sub("esp", "4"))
-                                code.append(Move("dword [esp]", right_reg))
-                                code.append(MoveSS("xmm1", "[esp]"))
-                                code.append(Add("esp", "4"))
-                            if reg in xmm_regs:
-                                code.append(RCPSS(reg, "xmm1"))
-                            else:
-                                code.append(RCPSS("xmm0", "xmm1"))
-                                code.append(MoveSS(reg, "xmm0"))
-                        else:
-                            if reg in xmm_regs:
-                                code.append(RCPSS(reg, right_reg))
-                            else:
-                                code.append(RCPSS("xmm0", right_reg))
-                                code.append(MoveSS(reg, "xmm0"))
-                        return code
-                    if left_reg not in xmm_regs:
-                        if left_reg in regs or (
-                                (left_reg[0] == "[" and left_reg[-1] == "]") and self.left_type == "int"):
-                            code.append(Cvtsi2ss("xmm0", left_reg))
-                        else:
-                            code.append(Sub("esp", "4"))
-                            code.append(Move("dword [esp]", left_reg))
-                            code.append(MoveSS("xmm0", "[esp]"))
-                            code.append(Add("esp", "4"))
-                    else:
-                        if not overwrite:
-                            code.append(MoveSS("xmm0", left_reg))
-                    if right_reg not in xmm_regs:
-                        if right_reg in regs or (
-                                (right_reg[0] == "[" and right_reg[-1] == "]") and self.right_type == "int"):
-                            code.append(Cvtsi2ss("xmm1", right_reg))
-                        else:
-                            code.append(Sub("esp", "4"))
-                            code.append(Move("dword [esp]", right_reg))
-                            code.append(MoveSS("xmm1", "[esp]"))
-                            code.append(Add("esp", "4"))
-                    else:
-                        if right_arg == "xmm1":
-                            code.append(MoveSS("xmm1", right_reg))
-                    if overwrite:
-                        code.append(Divss(left_reg, right_arg))
-                    else:
-                        code.append(Divss("xmm0", right_arg))
-                        code.append(MoveSS(reg, "xmm0"))
-            else:
-                left_reg = self.left.get_low_ir(scalar_variables)
-                is_overwrite = False
-                if left_reg in regs and left_reg == reg:
-                    is_overwrite = True
-                right_reg = self.right.get_low_ir(scalar_variables)
-                dw = ""
-                if self.is_cmp() and left_reg not in regs and isinstance(self.right,
-                                                                         (IntConstantOperand, FloatConstantOperand)):
-                    dw = " dword "
-                if self.op == "and":
-                    code.append(Move("eax", left_reg))
-                    code.append(And("eax", right_reg))
-                    code.append(Move(reg, "eax"))
-                if self.op == "or":
-                    code.append(Move("eax", left_reg))
-                    code.append(Or("eax", right_reg))
-                    code.append(Move(reg, "eax"))
-                if self.op == "+":
-                    if right_reg == "1" and left_reg in regs and reg == left_reg:
-                        code.append(Inc(left_reg))
-                    else:
-                        if is_overwrite:
-                            code.append(Add(left_reg, right_reg))
-                        else:
-                            code.append(Move("eax", left_reg))
-                            code.append(Add("eax", right_reg))
-                            code.append(Move(reg, "eax"))
-                if self.op == "-":
-                    if right_reg == "1" and left_reg in regs and reg == left_reg:
-                        code.append(Dec(left_reg))
-                    else:
-                        if is_overwrite:
-                            code.append(Sub(left_reg, right_reg))
-                        else:
-                            code.append(Move("eax", left_reg))
-                            code.append(Sub("eax", right_reg))
-                            code.append(Move(reg, "eax"))
-                if self.op == "*":
-                    if is_overwrite:
-                        code.append(Imul(left_reg, right_reg))
-                    else:
-                        code.append(Move("eax", left_reg))
-                        code.append(Imul("eax", right_reg))
-                        code.append(Move(reg, "eax"))
-                if self.op == "div" or self.op == "mod":
-                    if reg == "edx":
-                        pushable = False
-                        code.append(Move("eax", left_reg))
-                        if right_reg == "edx":
-                            right_reg = get_reg([reg, left_reg])
-                            code.append(Push(right_reg))
-                            pushable = True
-                        if right_reg not in regs:
-                            old = right_reg
-                            right_reg = get_reg([reg, left_reg])
-                            code.append(Push(right_reg))
-                            pushable = True
-                            code.append(Move(right_reg, old))
-                        code.append(Xor("edx", "edx"))
-                        code.append(Idiv(right_reg))
-                        if self.op == "div":
-                            code.append(Move(reg, "eax"))
-                        else:
-                            code.append(Move(reg, "edx"))
-                        if pushable:
-                            code.append(Pop(right_reg))
-                    else:
-                        code.append(Push("edx"))
-                        pushable = False
-                        pushable1 = False
-                        code.append(Move("eax", left_reg))
-                        if right_reg == "edx":
-                            right_reg = get_reg([reg, left_reg])
-                            code.append(Push("edx"))
-                            code.append(Push(right_reg))
-                            pushable = True
-                        if right_reg not in regs:
-                            old = right_reg
-                            right_reg = get_reg([reg, left_reg])
-                            code.append(Push(right_reg))
-                            pushable1 = True
-                            code.append(Move(right_reg, old))
-                        code.append(Xor("edx", "edx"))
-                        code.append(Idiv(right_reg))
-                        if self.op == "div":
-                            code.append(Move(reg, "eax"))
-                        else:
-                            code.append(Move(reg, "edx"))
-                        if pushable:
-                            code.append(Pop(right_reg))
-                            code.append(Pop("edx"))
-                        if pushable1:
-                            code.append(Pop(right_reg))
-                        code.append(Pop("edx"))
-                if self.is_cmp():
-                    if self.left_type == "int" and self.right_type == "int":
-                        code.append(Cmp(left_reg, dw + right_reg))
-                    else:
-                        if self.left_type == "int":
-                            if left_reg in regs or (left_reg[0] == "[" and left_reg[-1] == "]"):
-                                code.append(Cvtsi2ss("xmm0", left_reg))
-                            else:
-                                code.append(Sub("esp", "4"))
-                                code.append(Move("dword [esp]", left_reg))
-                                code.append(MoveSS("xmm0", "[esp]"))
-                                code.append(Add("esp", "4"))
-                        else:
-                            code.append(MoveSS("xmm0", left_reg))
-                        if self.right_type == "int":
-                            if right_reg in regs or (right_reg[0] == "[" and right_reg[-1] == "]"):
-                                code.append(Cvtsi2ss("xmm1", right_reg))
-                            else:
-                                code.append(Sub("esp", "4"))
-                                code.append(Move("dword [esp]", right_reg))
-                                code.append(MoveSS("xmm1", "[esp]"))
-                                code.append(Add("esp", "4"))
-                        else:
-                            code.append(MoveSS("xmm1", right_reg))
-                        code.append(Comiss("xmm0", "xmm1"))
-                    code.append(get_set_cmp(self.op))
-                    code.append(MoveZX("eax", "al"))
-                    code.append(Move(reg, "eax"))
+        reg = scalar_variables[self.value]
+        if self.type == "float":
+            if self.op in ["+", "*"] and isinstance(self.left, (FloatConstantOperand, IntConstantOperand)):
+                self.left, self.right = self.right, self.left
+                self.left_type, self.right_type = self.right_type, self.left_type
+            left_reg = self.left.get_low_ir(scalar_variables)
+            right_reg = self.right.get_low_ir(scalar_variables)
+            overwrite = False
+            if left_reg in xmm_regs and left_reg == reg:
+                overwrite = True
+            right_arg = "xmm1" if right_reg not in xmm_regs else right_reg
 
-            return code
+            if self.op == "/" and isinstance(self.left,
+                                             (IntConstantOperand, FloatConstantOperand)) and self.left.value == 1:
+                if right_reg not in xmm_regs:
+                    if right_reg in regs or (
+                            (right_reg[0] == "[" and right_reg[-1] == "]") and self.right_type == "int"):
+                        code.append(Cvtsi2ss("xmm1", right_reg))
+                    else:
+                        code.append(Sub("esp", "4"))
+                        code.append(Move("dword [esp]", right_reg))
+                        code.append(MoveSS("xmm1", "[esp]"))
+                        code.append(Add("esp", "4"))
+                    if reg in xmm_regs:
+                        code.append(RCPSS(reg, "xmm1"))
+                    else:
+                        code.append(RCPSS("xmm0", "xmm1"))
+                        code.append(MoveSS(reg, "xmm0"))
+                else:
+                    if reg in xmm_regs:
+                        code.append(RCPSS(reg, right_reg))
+                    else:
+                        code.append(RCPSS("xmm0", right_reg))
+                        code.append(MoveSS(reg, "xmm0"))
+                return code
+
+            if left_reg not in xmm_regs:
+                if left_reg in regs or (
+                        (left_reg[0] == "[" and left_reg[-1] == "]") and self.left_type == "int"):
+                    code.append(Cvtsi2ss("xmm0", left_reg))
+                else:
+                    code.append(Sub("esp", "4"))
+                    code.append(Move("dword [esp]", left_reg))
+                    code.append(MoveSS("xmm0", "[esp]"))
+                    code.append(Add("esp", "4"))
+            else:
+                if not overwrite:
+                    code.append(MoveSS("xmm0", left_reg))
+            if right_reg not in xmm_regs:
+                if right_reg in regs or (
+                        (right_reg[0] == "[" and right_reg[-1] == "]") and self.right_type == "int"):
+                    code.append(Cvtsi2ss("xmm1", right_reg))
+                else:
+                    code.append(Sub("esp", "4"))
+                    code.append(Move("dword [esp]", right_reg))
+                    if self.right_type == "int":
+                        code.append(Cvtsi2ss("xmm1", "[esp]"))
+                    else:
+                        code.append(MoveSS("xmm1", "[esp]"))
+                    code.append(Add("esp", "4"))
+            else:
+                if right_arg == "xmm1":
+                    code.append(MoveSS("xmm1", right_reg))
+            if not overwrite:
+                left_reg = "xmm0"
+            if self.op == "+":
+                code.append(Addss(left_reg, right_arg))
+            if self.op == "-":
+                code.append(Subss(left_reg, right_arg))
+            if self.op == "*":
+                code.append(Mulss(left_reg, right_arg))
+            if self.op == "/":
+                code.append(Divss(left_reg, right_arg))
+            if not overwrite:
+                code.append(MoveSS(reg, "xmm0"))
+        else:
+            left_reg = self.left.get_low_ir(scalar_variables)
+            is_overwrite = False
+            if left_reg in regs and left_reg == reg:
+                is_overwrite = True
+            right_reg = self.right.get_low_ir(scalar_variables)
+            if right_reg == "1" and is_overwrite:
+                if self.op == "+":
+                    code.append(Inc(left_reg))
+                if self.op == "-":
+                    code.append(Dec(left_reg))
+                return code
+            if self.op not in ["div", "mod"] and not self.is_cmp():
+                left_arg = "eax"
+                if is_overwrite:
+                    left_arg = left_reg
+                else:
+                    code.append(Move("eax", left_reg))
+                if self.op == "+":
+                    code.append(Add(left_arg, right_reg))
+                if self.op == "-":
+                    code.append(Sub(left_arg, right_reg))
+                if self.op == "*":
+                    code.append(Imul(left_arg, right_reg))
+                if self.op == "and":
+                    code.append(And(left_arg, right_reg))
+                if self.op == "or":
+                    code.append(Or(left_arg, right_reg))
+                if not is_overwrite:
+                    code.append(Move(reg, "eax"))
+            elif not self.is_cmp():
+                if reg != "edx" and "edx" in self.used_regs:
+                    code.append(Push("edx"))
+                pushable = False
+                code.append(Move("eax", left_reg))
+                if right_reg == "edx":
+                    right_reg = get_reg([reg, left_reg])
+                    if right_reg not in self.used_regs:
+                        code.append(Push(right_reg))
+                        pushable = True
+                if isinstance(self.right, IntConstantOperand):
+                    old = right_reg
+                    right_reg = get_reg([reg, left_reg])
+                    code.append(Move(right_reg, old))
+                    if right_reg not in self.used_regs:
+                        code.append(Push(right_reg))
+                        pushable = True
+                code.append(Xor("edx", "edx"))
+                code.append(Idiv(right_reg))
+                if self.op == "div":
+                    code.append(Move(reg, "eax"))
+                else:
+                    code.append(Move(reg, "edx"))
+                if pushable:
+                    code.append(Pop(right_reg))
+                if reg != "edx" and "edx" in self.used_regs:
+                    code.append(Pop("edx"))
+            if self.is_cmp():
+                dw = ""
+                if left_reg not in regs and isinstance(self.right, (IntConstantOperand, FloatConstantOperand)):
+                    dw = " dword "
+                if self.left_type == "int" and self.right_type == "int":
+                    code.append(Cmp(left_reg, dw + right_reg))
+                else:
+                    left_arg = "xmm0"
+                    right_arg = 'xmm1'
+                    if self.left_type == "int":
+                        if left_reg in regs or (left_reg[0] == "[" and left_reg[-1] == "]"):
+                            code.append(Cvtsi2ss("xmm0", left_reg))
+                        else:
+                            code.append(Sub("esp", "4"))
+                            code.append(Move("dword [esp]", left_reg))
+                            code.append(MoveSS("xmm0", "[esp]"))
+                            code.append(Add("esp", "4"))
+                    else:
+                        if left_reg in xmm_regs:
+                            left_arg = left_reg
+                        else:
+                            code.append(MoveSS("xmm0", left_reg))
+                    if self.right_type == "int":
+                        if right_reg in regs or (right_reg[0] == "[" and right_reg[-1] == "]"):
+                            code.append(Cvtsi2ss("xmm1", right_reg))
+                        else:
+                            code.append(Sub("esp", "4"))
+                            code.append(Move("dword [esp]", right_reg))
+                            code.append(MoveSS("xmm1", "[esp]"))
+                            code.append(Add("esp", "4"))
+                    else:
+                        if right_reg in xmm_regs:
+                            right_arg = right_reg
+                        else:
+                            code.append(MoveSS("xmm1", right_reg))
+                    code.append(Comiss(left_arg, right_arg))
+                code.append(get_set_cmp(self.op))
+                code.append(MoveZX("eax", "al"))
+                code.append(Move(reg, "eax"))
+        return code
 
 
 class PhiAssign(IR):
     def __init__(self, type, value, arguments):
+        super().__init__()
         self.type = type
         self.value = value
         self.arguments = arguments
@@ -1128,6 +988,7 @@ class PhiAssign(IR):
 
 class ReturnInstruction(IR):
     def __init__(self, value):
+        super().__init__()
         self.value = value
 
     def __str__(self):
@@ -1204,6 +1065,7 @@ class ReturnInstruction(IR):
 
 class IsTrueInstruction(IR):
     def __init__(self, value):
+        super().__init__()
         self.value = value
 
     def __str__(self):
