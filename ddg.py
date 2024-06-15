@@ -1,4 +1,10 @@
 from collections import defaultdict, deque
+from enum import Enum
+
+class Color(Enum):
+    WHITE = 0
+    GRAY = 1
+    BLACK = 2
 
 
 def dependency_analyze():
@@ -11,6 +17,7 @@ class VertexDDG:
         self.input_vertexs = []
         self.output_vertexes = []
         self.visited = False
+        self.color = None
 
 
 class GraphDDG:
@@ -18,6 +25,7 @@ class GraphDDG:
         self.vertexes = []
         self.stack = []
         self.scc_list = []
+        self.cycles_pairs = []
 
     def get_vertex(self, label):
         for vertex in self.vertexes:
@@ -42,6 +50,22 @@ class GraphDDG:
     def clear_visited(self):
         for vertex in self.vertexes:
             vertex.visited = False
+
+    def cycle_dfs(self, vertex):
+        vertex.color = Color.GRAY
+        for out_v in vertex.output_vertexes:
+            if out_v.color == Color.WHITE:
+                self.cycle_dfs(out_v)
+            if out_v.color == Color.GRAY:
+                self.cycles_pairs.append((vertex, out_v))
+        vertex.color = Color.BLACK
+
+    def check_cycle(self):
+        self.cycles_pairs = []
+        for v in self.vertexes:
+            v.color = Color.WHITE
+        self.cycle_dfs(self.vertexes[0])
+        return len(self.cycles_pairs) == 0
 
     def dfs(self, node):
         node.visited = True

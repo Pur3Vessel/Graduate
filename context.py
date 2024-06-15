@@ -1536,6 +1536,8 @@ class Context:
         if not self.check_vectorisation_is_possible(vec_cycle, nest_body):
             return
         array_gens, array_ins = self.get_nest_body_info_vec(nest_body, indexes)
+        print(array_gens)
+        print(array_ins)
         ddg_graph = GraphDDG()
         for i, gen in enumerate(array_gens):
             for j, in_list in enumerate(array_ins):
@@ -1545,6 +1547,30 @@ class Context:
                         return
                     if dependency_result:
                         ddg_graph.add_connector(i, j)
+        scc_list = ddg_graph.get_scc()
+        if len(scc_list) == 1:
+            self.vectorize_cycle(vec_cycle, indexes)
+        else:
+            self.loop_distribution(vec_cycle, scc_list)
 
-    def vectorize_cycle(self, cycle):
+    def loop_distribution(self, cycle, scc_list):
+        pass
+
+    def vectorize_cycle(self, cycle, indexes):
+        ddg_graph = GraphDDG()
+        body = cycle[2]
+        array_gens, array_ins = self.get_nest_body_info_vec(body, indexes)
+        for i, gen in enumerate(array_gens):
+            for j, in_list in enumerate(array_ins):
+                for in_use in in_list:
+                    dependency_result = dependency_analyze()
+                    if dependency_result is None:
+                        return
+                    if dependency_result:
+                        ddg_graph.add_connector(i, j)
+        if ddg_graph.check_cycle():
+            return
+        self.do_vectorize(cycle)
+
+    def do_vectorize(self, cycle):
         pass
