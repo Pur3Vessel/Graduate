@@ -20,12 +20,14 @@ def opt_pass(tree, j, tiling_flag, vectorisation_flag):
         builder.contexts[func.name].graph.get_natural_cycles()
         # Выявление достигающих определений
         builder.contexts[func.name].graph.solve_rd()
-        # Loop invariant_code_motion
+        # Loop invariant_code_motion, tiling, vectorization
         if j > 1:
             changed = builder.contexts[func.name].loop_invariant_code_motion(is_preheader) or changed
         elif j == 1:
             if tiling_flag:
                 builder.contexts[func.name].tiling()
+            if vectorisation_flag:
+                builder.contexts[func.name].vectorisation()
         # Построение дерева доминаторов
         builder.contexts[func.name].graph.dfs()
         builder.contexts[func.name].graph.build_dominators_tree()
@@ -102,7 +104,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("filename", nargs="?", default=None)
     parser.add_argument("--tiling", '-t', action='store_true')
-    parser.add_argument("--vectorisation", action='store_true')
+    parser.add_argument("--vectorisation", "-v", action='store_true')
     args = parser.parse_args()
     if args.filename:
         generate_file(args.filename, args.tiling, args.vectorisation)

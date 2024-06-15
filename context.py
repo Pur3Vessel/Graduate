@@ -3,6 +3,7 @@ from lattice import *
 import re
 import numpy as np
 import config
+from ddg import *
 
 
 class Context:
@@ -753,7 +754,7 @@ class Context:
                 right = []
             return [exp] + left + right
 
-    def get_full_array_exp(self, exp, block, indexes):
+    def get_full_array_exp(self, exp, block, indexes, tiling):
         if isinstance(exp, AtomicAssign):
             if not isinstance(exp.argument, ArrayUseOperand):
                 if exp.value in indexes:
@@ -763,11 +764,11 @@ class Context:
             else:
                 array_name = exp.argument.name
                 array_indexes = []
-                if len(exp.argument.indexing) != len(indexes) - 1:
+                if len(exp.argument.indexing) != len(indexes) - 1 and tiling:
                     return None
                 for dim in exp.argument.indexing:
                     if isinstance(dim, IntConstantOperand):
-                        return None
+                        array_indexes.append(str(dim.value))
                     if "$" in dim.value:
                         for instr in block:
                             if instr.value == dim.value:
@@ -781,7 +782,7 @@ class Context:
             if "$" in exp.arg.value:
                 for instr in block:
                     if instr.value == exp.arg.value:
-                        return self.get_full_array_exp(instr, block, indexes)
+                        return self.get_full_array_exp(instr, block, indexes, tiling)
             else:
                 if exp.arg.value in indexes:
                     return None
@@ -794,7 +795,7 @@ class Context:
             elif "$" in exp.left.value:
                 for instr in block:
                     if instr.value == exp.left.value:
-                        left = self.get_full_array_exp(instr, block, indexes)
+                        left = self.get_full_array_exp(instr, block, indexes, tiling)
                         if left is None:
                             return None
             else:
@@ -807,7 +808,7 @@ class Context:
             elif "$" in exp.right.value:
                 for instr in block:
                     if instr.value == exp.right.value:
-                        right = self.get_full_array_exp(instr, block, indexes)
+                        right = self.get_full_array_exp(instr, block, indexes, tiling)
                         if right is None:
                             return None
             else:
@@ -875,18 +876,18 @@ class Context:
             if isinstance(instruction, AtomicAssign):
                 if instruction.dimentions is None:
                     if "$" not in instruction.value:
-                        return None
+                        return None, None
                 else:
                     if len(instruction.dimentions) != len(indexes) - 1:
-                        return None
+                        return None, None
                     n_arrays += 1
                     if n_arrays > 1:
-                        return None
+                        return None, None
                     array_name = instruction.value
                     array_indexes = []
                     for dim in instruction.dimentions:
                         if isinstance(dim, IntConstantOperand):
-                            return None
+                            return None, None
                         if "$" in dim.value:
                             for instr in nest_body.block:
                                 if instr.value == dim.value:
@@ -897,16 +898,16 @@ class Context:
                     array_gen = (array_name, array_indexes)
                     array_in = []
                     if not isinstance(instruction.argument, IdOperand) or "$" not in instruction.argument.value:
-                        return None
+                        return None, None
                     for instr in nest_body.block:
                         if instr.value == instruction.argument.value:
-                            array_in = self.get_full_array_exp(instr, nest_body.block, indexes)
+                            array_in = self.get_full_array_exp(instr, nest_body.block, indexes, True)
                             break
                     if array_in is None or len(array_in) == 0:
-                        return None
+                        return None, None
 
         if n_arrays == 0:
-            return None
+            return None, None
 
         return array_gen, array_in
 
@@ -978,13 +979,12 @@ class Context:
         loops_info = []
         for cycle in nest:
             info = self.get_cycle_index_info(cycle)
-            if info[1].isdigit():
-                info = (info[0], int(info[1]), info[2])
-            if info[2].isdigit():
-                info = (info[0], info[1], int(info[2]))
-            loops_info.append(info)
             if info is None:
                 return
+            left = int(info[1]) if info[1].isdigit() else info[1]
+            right = int(info[2]) if info[2].isdigit() else info[2]
+            info = (info[0], left, right)
+            loops_info.append(info)
         indexes = list(map(lambda x: x[0], loops_info))
         body_info = self.get_nest_body_info(nest_body[0], indexes)
         if body_info is None:
@@ -1306,14 +1306,17 @@ class Context:
                 for j, f in enumerate(fs):
                     mul_tmp = self.get_tmp()
                     minus_tmp = self.get_tmp()
-                    cycle_enter.block.append(BinaryAssign("int", minus_tmp, "-", ends[j], IntConstantOperand(1), "int", "int"))
-                    cycle_enter.block.append(BinaryAssign("int", mul_tmp, "*", IntConstantOperand(f), IdOperand(minus_tmp), "int", "int"))
+                    cycle_enter.block.append(
+                        BinaryAssign("int", minus_tmp, "-", ends[j], IntConstantOperand(1), "int", "int"))
+                    cycle_enter.block.append(
+                        BinaryAssign("int", mul_tmp, "*", IntConstantOperand(f), IdOperand(minus_tmp), "int", "int"))
                     f_muls.append(mul_tmp)
                 prev_add = self.get_tmp()
                 cycle_enter.block.append(BinaryAssign("int", prev_add, "+", end[0], IdOperand(f_muls[0]), "int", "int"))
                 for f_mul in f_muls[1:]:
                     add = self.get_tmp()
-                    cycle_enter.block.append(BinaryAssign("int", add, "+", IdOperand(prev_add), IdOperand(f_mul), "int", "int"))
+                    cycle_enter.block.append(
+                        BinaryAssign("int", add, "+", IdOperand(prev_add), IdOperand(f_mul), "int", "int"))
                     prev_add = add
                 cmp_name = self.get_tmp()
                 cycle_enter.block.append(
@@ -1357,23 +1360,32 @@ class Context:
                 if len(f_muls) == 1:
                     cycle_enter.block.append(AtomicAssign("int", prev_add, IdOperand(f_muls[0]), None, None))
                 else:
-                    cycle_enter.block.append(BinaryAssign("int", prev_add, "+", IdOperand(f_muls[0]), IdOperand(f_muls[1]), "int", "int"))
+                    cycle_enter.block.append(
+                        BinaryAssign("int", prev_add, "+", IdOperand(f_muls[0]), IdOperand(f_muls[1]), "int", "int"))
                     for f_mul in f_muls[2:]:
                         add = self.get_tmp()
-                        cycle_enter.block(BinaryAssign("int", add, "+", IdOperand(prev_add), IdOperand(f_mul), "int", "int"))
+                        cycle_enter.block(
+                            BinaryAssign("int", add, "+", IdOperand(prev_add), IdOperand(f_mul), "int", "int"))
                         prev_add = add
                 f_adds.append(prev_add)
                 cycle_enter.block.append(AtomicAssign("int", indexes[i] + "!1",
                                                       FuncCallOperand("max", [IdOperand(init_tmp_arg1),
                                                                               IdOperand(prev_add)]), None, None))
                 first_arg_name = self.get_tmp()
-                cycle_enter.block.append(BinaryAssign("int", first_arg_name, "+", end[0], IdOperand(prev_add), "int", "int"))
+                cycle_enter.block.append(
+                    BinaryAssign("int", first_arg_name, "+", end[0], IdOperand(prev_add), "int", "int"))
                 add_name = self.get_tmp()
-                cycle_enter.block.append(BinaryAssign("int", add_name, "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1), "int", "int"))
+                cycle_enter.block.append(
+                    BinaryAssign("int", add_name, "+", IdOperand(indexes[i] + "!0"), IntConstantOperand(1), "int",
+                                 "int"))
                 second_arg_name = self.get_tmp()
-                cycle_enter.block.append(BinaryAssign("int", second_arg_name, "*", IdOperand(add_name), IntConstantOperand(d), "int", "int"))
+                cycle_enter.block.append(
+                    BinaryAssign("int", second_arg_name, "*", IdOperand(add_name), IntConstantOperand(d), "int", "int"))
                 min_name = self.get_tmp()
-                cycle_enter.block.append(AtomicAssign("int", min_name, FuncCallOperand("min", [IdOperand(first_arg_name), IdOperand(second_arg_name)]), None, None))
+                cycle_enter.block.append(AtomicAssign("int", min_name, FuncCallOperand("min",
+                                                                                       [IdOperand(first_arg_name),
+                                                                                        IdOperand(second_arg_name)]),
+                                                      None, None))
                 br_name = self.get_tmp()
                 cycle_enter.block.append(
                     BinaryAssign("bool", br_name, "<", IdOperand(indexes[i] + "!1"), IdOperand(min_name), 'int',
@@ -1410,7 +1422,8 @@ class Context:
         for i in range(len(indexes) - 1, 0, -1):
             index = indexes[i]
             f_add = f_adds[i - 1]
-            body.insert_head(BinaryAssign("int", index + "!2", "-", IdOperand(index + "!1"), IdOperand(f_add), "int", "int"))
+            body.insert_head(
+                BinaryAssign("int", index + "!2", "-", IdOperand(index + "!1"), IdOperand(f_add), "int", "int"))
         one = [a for a, b, in cycles_pairs]
         two = [b for a, b in cycles_pairs]
         cycles_pairs = one + two
@@ -1453,3 +1466,85 @@ class Context:
             instruction.replace_operand(old, new)
             if instruction.value == old:
                 instruction.value = new
+
+    def vectorisation(self):
+        loop_nests = self.graph.find_loop_nests()
+        for nest in loop_nests:
+            self.vectorization_nest(nest)
+
+    def check_vectorisation_is_possible(self, cycle, body):
+        invar_order = self.mark_invar(cycle)
+        for instruction in body.block:
+            if is_assign(instruction):
+                if (instruction not in invar_order and not (instruction.value.split("$")[0] == "tmp")
+                        and not (isinstance(instruction, AtomicAssign) and instruction.dimentions is not None)):
+                    return False
+        return True
+
+    def get_nest_body_info_vec(self, nest_body, indexes):
+        n_arrays = 0
+        array_gens, array_ins = [], []
+        for instruction in nest_body.block:
+            if isinstance(instruction, AtomicAssign):
+                if instruction.dimentions is not None:
+                    n_arrays += 1
+                    array_name = instruction.value
+                    array_indexes = []
+                    for dim in instruction.dimentions:
+                        if isinstance(dim, IntConstantOperand):
+                            array_indexes.append(str(dim.value))
+                        if "$" in dim.value:
+                            for instr in nest_body.block:
+                                if instr.value == dim.value:
+                                    array_indexes.append(self.get_full_exp(instr, nest_body.block))
+                                    break
+                        else:
+                            array_indexes.append(dim.value)
+                    array_gen = (array_name, array_indexes)
+                    array_in = []
+                    if not isinstance(instruction.argument, IdOperand) or "$" not in instruction.argument.value:
+                        return None, None
+                    for instr in nest_body.block:
+                        if instr.value == instruction.argument.value:
+                            array_in = self.get_full_array_exp(instr, nest_body.block, indexes, False)
+                            break
+                    if array_in is None or len(array_in) == 0:
+                        return None, None
+                    array_gens.append(array_gen)
+                    array_ins.append(array_in)
+        if n_arrays == 0:
+            return None, None
+        return array_gens, array_ins
+
+    def vectorization_nest(self, nest):
+        is_perfect, nest_body = self.is_perfect_nest(nest)
+        if not is_perfect or len(nest_body) != 1:
+            return
+        nest_body = nest_body[0]
+        loops_info = []
+        nest = sorted(nest, key=lambda x: len(x), reverse=True)
+        for cycle in nest:
+            info = self.get_cycle_index_info(cycle)
+            if info is None:
+                return
+            left = int(info[1]) if info[1].isdigit() else info[1]
+            right = int(info[2]) if info[2].isdigit() else info[2]
+            info = (info[0], left, right)
+            loops_info.append(info)
+        indexes = list(map(lambda x: x[0], loops_info))
+        vec_cycle = nest[-1]
+        if not self.check_vectorisation_is_possible(vec_cycle, nest_body):
+            return
+        array_gens, array_ins = self.get_nest_body_info_vec(nest_body, indexes)
+        ddg_graph = GraphDDG()
+        for i, gen in enumerate(array_gens):
+            for j, in_list in enumerate(array_ins):
+                for in_use in in_list:
+                    dependency_result = dependency_analyze()
+                    if dependency_result is None:
+                        return
+                    if dependency_result:
+                        ddg_graph.add_connector(i, j)
+
+    def vectorize_cycle(self, cycle):
+        pass
