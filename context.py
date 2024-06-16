@@ -1536,43 +1536,43 @@ class Context:
         if not self.check_vectorisation_is_possible(vec_cycle, nest_body):
             return
         array_gens, array_ins = self.get_nest_body_info_vec(nest_body, indexes)
-        print(array_gens)
-        print(array_ins)
         ddg_graph = GraphDDG()
         for i, gen in enumerate(array_gens):
             for j, in_list in enumerate(array_ins):
                 for in_use in in_list:
                     dependency_result = dependency_analyze(gen, in_use, indexes, loops_info)
-                    print(gen, in_use, dependency_result)
                     if dependency_result is None:
                         return
                     if dependency_result[0] and not (i >= j and not dependency_result[1]):
                         ddg_graph.add_connector(i, j, dependency_result[1])
         scc_list = ddg_graph.get_scc()
-        if len(scc_list) == 1:
+        if len(scc_list) <= 1:
             self.vectorize_cycle(vec_cycle, indexes, loops_info)
         else:
             self.loop_distribution(vec_cycle, scc_list, indexes, loops_info)
 
     def get_instructions_tmp(self, block, tmp):
         instructions = []
-        for instruction in block:
+        for instruction in block.block:
             if is_assign(instruction) and instruction.value == tmp:
                 instructions = [instruction]
-                for op in instructions.get_operands():
+                for op in instruction.get_operands():
                     if isinstance(op, IdOperand) and "$" in op.value:
-                        instructions += self.get_instructions_tmp(block, op.value) + instructions
+                        instructions = self.get_instructions_tmp(block, op.value) + instructions
         return instructions
 
     def get_number_instructions(self, number, block):
         i = 0
         instructions = []
-        for instruction in block:
+        for instruction in block.block:
             if isinstance(instruction, AtomicAssign) and instruction.dimentions is not None:
                 if i == number:
                     instructions = [instruction]
                     if isinstance(instruction.argument, IdOperand) and "$" in instruction.argument.value:
                         instructions = self.get_instructions_tmp(block, instruction.argument.value) + instructions
+                    for dim in instruction.dimentions:
+                        if isinstance(dim, IdOperand) and "$" in dim.value:
+                            instructions = self.get_instructions_tmp(block, dim.value) + instructions
                     return instructions
                 else:
                     i += 1
@@ -1586,18 +1586,19 @@ class Context:
         enter_dop = None
         for vertex in cycle:
             self.graph.vertexes.remove(vertex)
+        self.graph.vertexes.remove(enter_al)
         enter_all.output_vertexes = []
         after_all.input_vertexes = []
         cycles = []
         for i, scc in enumerate(scc_list):
-            new_cyc = self.get_cycle_copy([enter_al, cycle[0], cycle[1]])
+            new_cyc = self.get_cycle_copy([enter_al, cycle[1], cycle[0]])
             new_latch = new_cyc[2]
             new_enter = new_cyc[0]
             new_header = new_cyc[1]
             new_body = Vertex([], [], [])
             new_body.input_vertexes.append(new_header)
             new_header.output_vertexes.append(new_body)
-            new_latch.output_vertexes.append(new_latch)
+            new_body.output_vertexes.append(new_latch)
             new_latch.input_vertexes.append(new_body)
             for v in scc:
                 label = v.value
@@ -1611,8 +1612,10 @@ class Context:
                 new_enter.input_vertexes.append(enter_dop)
             enter = new_latch
             if isinstance(new_enter.block[-1], IsTrueInstruction):
-
-            if i == len(scc) - 1:
+                enter_dop = new_enter
+            else:
+                enter_dop = None
+            if i == len(scc_list) - 1:
                 new_latch.output_vertexes.append(after_all)
                 after_all.input_vertexes.append(new_latch)
                 if isinstance(new_enter.block[-1], IsTrueInstruction):
@@ -1646,4 +1649,19 @@ class Context:
         self.do_vectorize(cycle)
 
     def do_vectorize(self, cycle):
-        pass
+        enter_al, after_all = self.get_cycle_blocks(cycle)
+        enter_all = enter_al.input_vertexes[0]
+        body_c = cycle[2]
+        body = Vertex([], [], [])
+        body.block = body_c.block
+        enter = enter_all
+        for vertex in cycle:
+            self.graph.vertexes.remove(vertex)
+        self.graph.vertexes.remove(enter_al)
+        enter_all.output_vertexes = []
+        after_all.input_vertexes = []
+        body2 = deepcopy(body)
+        body2.replace_number()
+        self.replace_tmp(body2)
+        new_cyc = self.get_cycle_copy([enter_al, cycle[1], cycle[0]])
+
