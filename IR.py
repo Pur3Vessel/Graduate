@@ -139,6 +139,133 @@ class FuncDefInstruction(IR):
         return False
 
 
+class SliceAssign(IR):
+    def __init__(self, type, name, argument, dimentions, dimentions_variables):
+        super().__init__()
+        self.type = type
+        self.name = name
+        self.dimentions = dimentions
+        self.argument = argument
+        self.dimentions_variables = dimentions_variables
+
+    def __str__(self):
+        d = "["
+        d += ", ".join(str(dim) for dim in self.dimentions)
+        d += ":"
+        d += "]"
+        return self.type + " " + self.name + d + " <- " + str(self.argument)
+
+    def rename_operands(self, name, version):
+        if isinstance(self.argument, IdOperand):
+            if self.argument.value == name:
+                new_op = IdOperand(name + "_" + str(version))
+                self.argument = new_op
+
+        for i, d in enumerate(self.dimentions):
+            if isinstance(d, IdOperand) and d.value == name:
+                self.dimentions[i] = IdOperand(d.value + "_" + str(version))
+
+    def get_operands(self):
+        operands = []
+        for dim in self.dimentions:
+            operands.append(dim)
+        operands.append(self.argument)
+        return operands
+
+    def is_use_op(self, value):
+        for d in self.dimentions:
+            if d.value == value:
+                return True
+            if self.dimentions_variables is not None:
+                for d in self.dimentions_variables[1:]:
+                    if d == value:
+                        return True
+        if isinstance(self.argument, IntConstantOperand) or isinstance(self.argument,
+                                                                       BoolConstantOperand) or isinstance(self.argument,
+                                                                                                          FloatConstantOperand):
+            return False
+        return self.argument.value == value
+
+    def lat_eval(self, lattice):
+        return ConstantLatticeElement.LOW
+
+    def place_constants(self, lattice):
+
+        if isinstance(self.argument, IdOperand):
+            if self.argument.value in lattice.sl:
+                val = lattice.sl[self.argument.value]
+                if not isinstance(val, ConstantLatticeElement):
+                    if type(val) is int:
+                        self.argument = IntConstantOperand(val)
+                    elif type(val) is float:
+                        self.argument = FloatConstantOperand(val)
+                    else:
+                        assert type(val) is bool
+                        self.argument = BoolConstantOperand(val)
+                    return True
+
+        for i, d in enumerate(self.dimentions):
+            if d.value in lattice.sl:
+                val = lattice.sl[d.value]
+                if not isinstance(val, ConstantLatticeElement):
+                    if type(val) is int:
+                        self.dimentions[i] = IntConstantOperand(val)
+
+        return False
+
+    def is_def(self, op):
+        return False
+
+    def remove_versions(self):
+        if isinstance(self.argument, IdOperand):
+            self.argument = IdOperand(self.argument.value.split("_")[0])
+        for i, d in enumerate(self.dimentions):
+            if isinstance(d, IdOperand):
+                self.dimentions[i] = IdOperand(d.value.split("_")[0])
+
+    def replace_operand(self, name, new_name):
+        if self.argument.value == name:
+            self.argument = IdOperand(new_name)
+        new_dims = []
+        for d in self.dimentions:
+            if d.value == name:
+                new_dims.append(IdOperand(new_name))
+            else:
+                new_dims.append(d)
+        self.dimentions = new_dims
+
+    def replace_tmp(self, version):
+        if len(self.value.split("$")) > 1:
+            version = version + 1
+            new_tmp = "tmp$" + str(version)
+            old = self.value
+            self.value = new_tmp
+            return version, old, new_tmp
+        return version, None, None
+
+    def get_low_ir_arr(self, scalar_variables, array_adresses, slice_variables):
+        code = []
+        xmm_reg = "xmm0"
+        if isinstance(self.argument, IdOperand) and self.argument.value in slice_variables:
+            xmm_reg = scalar_variables[self.argument.value]
+        else:
+            reg = self.argument.get_low_ir(scalar_variables)
+            code.append(MoveSS("xmm0", reg))
+            if self.type == "float":
+                code.append(Shufps("xmm0", "xmm0", "0x00"))
+            else:
+                code.append(Pshufd("xmm0", "xmm0", "0x00"))
+        arr_code, src, pop_intr = generate_array_index_code(self.name, self.dimentions,
+                                                            scalar_variables, array_adresses, [], self.used_regs)
+        code += arr_code
+        if self.type == "float":
+            code.append(Movups(src, xmm_reg))
+        else:
+            code.append(Movdqu(src, xmm_reg))
+        code += pop_intr
+        return code
+
+
 class ArrayInitInstruction(IR):
     def __init__(self, type, name, dimentions, assign):
         super().__init__()
@@ -218,7 +345,7 @@ class AtomicAssign(IR):
             if self.argument.value == name:
                 new_op = IdOperand(name + "_" + str(version))
                 self.argument = new_op
-        if isinstance(self.argument, (FuncCallOperand, ArrayUseOperand)):
+        if isinstance(self.argument, (FuncCallOperand, ArrayUseOperand, SliceOperand)):
             self.argument.rename_operands(name, version)
         if self.dimentions is not None:
             for i, d in enumerate(self.dimentions):
@@ -230,10 +357,7 @@ class AtomicAssign(IR):
         if self.dimentions is not None:
             for dim in self.dimentions:
                 operands.append(dim)
-        if isinstance(self.argument, FuncCallOperand):
-            operands += self.argument.get_operands()
-            return operands
-        if isinstance(self.argument, ArrayUseOperand):
+        if isinstance(self.argument, (FuncCallOperand, ArrayUseOperand, SliceOperand)):
             operands += self.argument.get_operands()
             return operands
         operands.append(self.argument)
@@ -252,12 +376,12 @@ class AtomicAssign(IR):
                                                                        BoolConstantOperand) or isinstance(self.argument,
                                                                                                           FloatConstantOperand):
             return False
-        if isinstance(self.argument, FuncCallOperand) or isinstance(self.argument, ArrayUseOperand):
+        if isinstance(self.argument, FuncCallOperand) or isinstance(self.argument, (ArrayUseOperand, SliceOperand)):
             return self.argument.is_use_op(value)
         return self.argument.value == value
 
     def lat_eval(self, lattice):
-        if isinstance(self.argument, FuncCallOperand) or isinstance(self.argument, ArrayUseOperand):
+        if isinstance(self.argument, FuncCallOperand) or isinstance(self.argument, (ArrayUseOperand, SliceOperand)):
             return ConstantLatticeElement.LOW
         if isinstance(self.argument, IntConstantOperand) or isinstance(self.argument,
                                                                        BoolConstantOperand) or isinstance(self.argument,
@@ -268,7 +392,7 @@ class AtomicAssign(IR):
         return lattice.sl[self.argument.value]
 
     def place_constants(self, lattice):
-        if isinstance(self.argument, FuncCallOperand) or isinstance(self.argument, ArrayUseOperand):
+        if isinstance(self.argument, FuncCallOperand) or isinstance(self.argument, (ArrayUseOperand, SliceOperand)):
             return self.argument.place_constants(lattice)
 
         if isinstance(self.argument, IdOperand):
@@ -299,7 +423,7 @@ class AtomicAssign(IR):
 
     def remove_versions(self):
         self.value = self.value.split("_")[0]
-        if isinstance(self.argument, FuncCallOperand) or isinstance(self.argument, ArrayUseOperand):
+        if isinstance(self.argument, FuncCallOperand) or isinstance(self.argument, (ArrayUseOperand, SliceOperand)):
             self.argument.remove_versions()
         if isinstance(self.argument, IdOperand):
             self.argument = IdOperand(self.argument.value.split("_")[0])
@@ -309,7 +433,7 @@ class AtomicAssign(IR):
                     self.dimentions[i] = IdOperand(d.value.split("_")[0])
 
     def replace_operand(self, name, new_name):
-        if isinstance(self.argument, (FuncCallOperand, ArrayUseOperand)):
+        if isinstance(self.argument, (FuncCallOperand, ArrayUseOperand, SliceOperand)):
             self.argument.replace_operand(name, new_name)
         else:
             if self.argument.value == name:
@@ -332,7 +456,7 @@ class AtomicAssign(IR):
             return version, old, new_tmp
         return version, None, None
 
-    def get_low_ir_arr(self, scalar_variables, array_adresses):
+    def get_low_ir_arr(self, scalar_variables, array_adresses, slice_variables):
         code = []
         if self.dimentions is None:
             reg = scalar_variables[self.value]
@@ -385,7 +509,8 @@ class AtomicAssign(IR):
                     code.append(Pop("ecx"))
             if isinstance(self.argument, ArrayUseOperand):
                 arr_code, src, pop_intr = generate_array_index_code(self.argument.name, self.argument.indexing,
-                                                                    scalar_variables, array_adresses, [reg], self.used_regs)
+                                                                    scalar_variables, array_adresses, [reg],
+                                                                    self.used_regs)
                 code += arr_code
                 if self.type == "float":
                     if reg not in xmm_regs:
@@ -399,6 +524,16 @@ class AtomicAssign(IR):
                         code.append(Move(reg, "eax"))
                     else:
                         code.append(Move(reg, src))
+                code += pop_intr
+            if isinstance(self.argument, SliceOperand):
+                arr_code, src, pop_intr = generate_array_index_code(self.argument.name, self.argument.indexing,
+                                                                    scalar_variables, array_adresses, [],
+                                                                    self.used_regs)
+                code += arr_code
+                if self.type == "float":
+                    code.append(Movups(reg, src))
+                else:
+                    code.append(Movdqu(reg, src))
                 code += pop_intr
             return code
         else:
@@ -502,7 +637,7 @@ class UnaryAssign(IR):
             return version, old, new_tmp
         return version, None, None
 
-    def get_low_ir(self, scalar_variables):
+    def get_low_ir_ass(self, scalar_variables, slice_variables):
         code = []
         reg = scalar_variables[self.value]
         argument_reg = self.arg.get_low_ir(scalar_variables)
@@ -575,6 +710,9 @@ class BinaryAssign(IR):
                 self.right, FloatConstantOperand):
             op2 = self.right.value
         else:
+            if isinstance(self.right, str):
+                print(self.right)
+                print(self)
             op2 = lattice.sl[self.right.value]
 
         if self.op == "*" and (op1 == 0 or op2 == 0):
@@ -747,7 +885,48 @@ class BinaryAssign(IR):
             code.append(Comiss(left_cmp, right_cmp))
         return code, self.op
 
-    def get_low_ir(self, scalar_variables):
+    def get_low_ir_slices(self, scalar_variables, slice_variables):
+        reg = scalar_variables[self.value]
+        left_reg = self.left.get_low_ir(scalar_variables)
+        right_reg = self.right.get_low_ir(scalar_variables)
+        code = []
+        if self.type == "float":
+            code.append(Movups(reg, "xmm0"))
+        else:
+            if left_reg in xmm_regs:
+                code.append(Movdqu("xmm0", left_reg))
+            else:
+                r = "eax"
+                if left_reg in regs:
+                    r = left_reg
+                else:
+                    code.append(Move("eax", left_reg))
+                code.append(Movd("xmm0", r))
+                code.append(Pshufd("xmm0", "xmm0", "0x00"))
+
+            if right_reg in xmm_regs:
+                code.append(Movdqu("xmm1", right_reg))
+            else:
+                r = "eax"
+                if right_reg in regs:
+                    r = right_reg
+                else:
+                    code.append(Move("eax", right_reg))
+                code.append(Movd("xmm1", r))
+                code.append(Pshufd("xmm1", "xmm1", "0x00"))
+
+            if self.op == "+":
+                code.append(Paddd("xmm0", "xmm1"))
+            if self.op == "-":
+                code.append(Psubd("xmm0", "xmm1"))
+            if self.op == "*":
+                code.append(Pmulld("xmm0", "xmm1"))
+            code.append(Movdqu(reg, "xmm0"))
+        return code
+
+    def get_low_ir_ass(self, scalar_variables, slice_variables):
+        if self.value in slice_variables:
+            return self.get_low_ir_slices(scalar_variables, slice_variables)
         if isinstance(self.left, (IntConstantOperand, FloatConstantOperand)) and self.is_cmp():
             self.left, self.right = self.right, self.left
             self.left_type, self.right_type = self.right_type, self.left_type
@@ -865,16 +1044,16 @@ class BinaryAssign(IR):
                 code.append(Move("eax", left_reg))
                 if right_reg == "edx":
                     right_reg = get_reg([reg, left_reg])
-                    if right_reg not in self.used_regs:
+                    if right_reg in self.used_regs:
                         code.append(Push(right_reg))
                         pushable = True
                 if isinstance(self.right, IntConstantOperand):
                     old = right_reg
                     right_reg = get_reg([reg, left_reg])
-                    code.append(Move(right_reg, old))
-                    if right_reg not in self.used_regs:
+                    if right_reg in self.used_regs:
                         code.append(Push(right_reg))
                         pushable = True
+                    code.append(Move(right_reg, old))
                 code.append(Xor("edx", "edx"))
                 code.append(Idiv(right_reg))
                 if self.op == "div":

@@ -19,6 +19,7 @@ class Context:
         self.labels_to_live = {}
         self.tmp_version = -1
         self.n_test = None
+        self.slices_variables = []
 
     def set_contexts(self, contexts):
         self.contexts = contexts
@@ -239,6 +240,8 @@ class Context:
         return is_exists
 
     def dom_predicate(self, instruction, cycle, preheader):
+        if instruction.value == "i" or instruction.value == "j" or instruction.value == "k":
+            return False
         exits = self.graph.get_exits_for_cycle(cycle)
         # for exit in exits:
         #    print(exit.dfs_number)
@@ -352,7 +355,7 @@ class Context:
                 SSAWL.add((v, succ))
 
     def visit_inst(self, v, instr, lattice, flowWL, SSAWL):
-        if isinstance(instr, (FuncDefInstruction, ReturnInstruction, ArrayInitInstruction)) or (
+        if isinstance(instr, (FuncDefInstruction, ReturnInstruction, ArrayInitInstruction, SliceAssign)) or (
                 isinstance(instr, AtomicAssign) and instr.dimentions is not None):
             if len(v.output_vertexes) != 0:
                 flowWL.add((v, v.output_vertexes[0]))
@@ -380,7 +383,8 @@ class Context:
 
     def is_critical_instruction(self, instruction):
         return isinstance(instruction,
-                          (IsTrueInstruction, ReturnInstruction, ArrayInitInstruction, FuncDefInstruction)) or (
+                          (IsTrueInstruction, ReturnInstruction, ArrayInitInstruction, FuncDefInstruction,
+                           SliceAssign)) or (
                 isinstance(instruction,
                            AtomicAssign) and instruction.dimentions is not None)
 
@@ -678,6 +682,8 @@ class Context:
 
     def get_full_exp(self, exp, block):
         if isinstance(exp, AtomicAssign):
+            if isinstance(exp.argument, FuncCallOperand):
+                return "CALL()"
             if isinstance(exp.argument, (IntConstantOperand, FloatConstantOperand)):
                 return str(exp.argument)
             if "$" in exp.argument.value:
@@ -987,7 +993,7 @@ class Context:
             loops_info.append(info)
         indexes = list(map(lambda x: x[0], loops_info))
         body_info = self.get_nest_body_info(nest_body[0], indexes)
-        if body_info is None:
+        if body_info[0] is None:
             return
         array_gen = self.analyze_array_use(body_info[0], indexes[1:])
         if array_gen is None:
@@ -1650,18 +1656,138 @@ class Context:
 
     def do_vectorize(self, cycle):
         enter_al, after_all = self.get_cycle_blocks(cycle)
+        start = enter_al.block[0].argument
         enter_all = enter_al.input_vertexes[0]
         body_c = cycle[2]
         body = Vertex([], [], [])
         body.block = body_c.block
-        enter = enter_all
         for vertex in cycle:
             self.graph.vertexes.remove(vertex)
         self.graph.vertexes.remove(enter_al)
-        enter_all.output_vertexes = []
-        after_all.input_vertexes = []
-        body2 = deepcopy(body)
-        body2.replace_number()
-        self.replace_tmp(body2)
+        enter_all.output_vertexes.remove(enter_al)
+        if enter_al in after_all.input_vertexes:
+            after_all.input_vertexes.remove(enter_al)
+        after_all.input_vertexes.remove(cycle[0])
+        body1 = deepcopy(body)
+        body1.replace_number()
+        self.replace_tmp(body1)
         new_cyc = self.get_cycle_copy([enter_al, cycle[1], cycle[0]])
+        new_cyc1 = self.get_cycle_copy([enter_al, cycle[1], cycle[0]])
 
+        new_cyc_enter = new_cyc[0]
+        new_cyc_header = new_cyc[1]
+        new_cyc_latch = new_cyc[2]
+        new_cyc_latch.block[0].right.value = 4
+        cmp_instruction = new_cyc_latch.block[-2]
+        index = cmp_instruction.left
+        end = cmp_instruction.right
+        new_mod_tmp = self.get_tmp()
+        mod_instr = BinaryAssign("int", new_mod_tmp, "mod", end, IntConstantOperand(4), 'int', 'int')
+        new_end_tmp = self.get_tmp()
+        end_instr = BinaryAssign("int", new_end_tmp, "-", end, IdOperand(new_mod_tmp), 'int', 'int')
+        start_add_tmp = self.get_tmp()
+        start_add_instr = BinaryAssign("int", start_add_tmp, "+", IdOperand(new_end_tmp), start, 'int', 'int')
+        cmp_instruction.right = IdOperand(start_add_tmp)
+        new_cyc_latch.block.insert(len(new_cyc_latch.block) - 2, mod_instr)
+        new_cyc_latch.block.insert(len(new_cyc_latch.block) - 2, end_instr)
+        new_cyc_latch.block.insert(len(new_cyc_latch.block) - 2, start_add_instr)
+        if not isinstance(new_cyc_enter.block[-1], IsTrueInstruction):
+            new_mod_tmp = self.get_tmp()
+            mod_instr = BinaryAssign("int", new_mod_tmp, "mod", end, IntConstantOperand(4), 'int', 'int')
+            new_end_tmp = self.get_tmp()
+            end_instr = BinaryAssign("int", new_end_tmp, "-", end, IdOperand(new_mod_tmp), 'int', 'int')
+            start_add_tmp = self.get_tmp()
+            start_add_instr = BinaryAssign("int", start_add_tmp, "+", IdOperand(new_end_tmp), start, 'int', 'int')
+            br_tmp = self.get_tmp()
+            cmp_op = BinaryAssign("bool", br_tmp, "<", index, IdOperand(start_add_tmp), 'int', 'int')
+            br_op = IsTrueInstruction(IdOperand(br_tmp))
+            new_cyc_enter.block.append(mod_instr)
+            new_cyc_enter.block.append(end_instr)
+            new_cyc_enter.block.append(start_add_instr)
+            new_cyc_enter.block.append(cmp_op)
+            new_cyc_enter.block.append(br_op)
+        else:
+            cmp_instruction = new_cyc_enter.block[-2]
+            end = cmp_instruction.right
+            new_mod_tmp = self.get_tmp()
+            mod_instr = BinaryAssign("int", new_mod_tmp, "mod", end, IntConstantOperand(4), 'int', 'int')
+            new_end_tmp = self.get_tmp()
+            end_instr = BinaryAssign("int", new_end_tmp, "-", end, IdOperand(new_mod_tmp), 'int', 'int')
+            start_add_tmp = self.get_tmp()
+            start_add_instr = BinaryAssign("int", start_add_tmp, "+", IdOperand(new_end_tmp), start, 'int', 'int')
+            cmp_instruction.right = IdOperand(start_add_tmp)
+            new_cyc_enter.block.insert(len(new_cyc_enter.block) - 2, mod_instr)
+            new_cyc_enter.block.insert(len(new_cyc_enter.block) - 2, end_instr)
+            new_cyc_enter.block.insert(len(new_cyc_enter.block) - 2, start_add_instr)
+
+        new_cyc1_enter = new_cyc1[0]
+        new_cyc1_header = new_cyc1[1]
+        new_cyc1_latch = new_cyc1[2]
+
+        init_op = new_cyc1_enter.block[0]
+        init_op.argument = IdOperand(start_add_tmp)
+        if not isinstance(new_cyc1_enter.block[-1], IsTrueInstruction):
+            br_tmp = self.get_tmp()
+            cmp_op = BinaryAssign("bool", br_tmp, "<", index, end, 'int', 'int')
+            br_op = IsTrueInstruction(IdOperand(br_tmp))
+            new_cyc1_enter.block.append(cmp_op)
+            new_cyc1_enter.block.append(br_op)
+        new_cyc_enter.input_vertexes.append(enter_all)
+        enter_all.output_vertexes.append(new_cyc_enter)
+        body.input_vertexes.append(new_cyc_header)
+        new_cyc_header.output_vertexes.append(body)
+        body.output_vertexes.append(new_cyc_latch)
+        new_cyc_latch.input_vertexes.append(body)
+        new_cyc_latch.output_vertexes.append(new_cyc1_enter)
+        new_cyc1_enter.input_vertexes.append(new_cyc_latch)
+        new_cyc1_enter.input_vertexes.append(new_cyc_enter)
+        new_cyc_enter.output_vertexes.append(new_cyc1_enter)
+
+        new_cyc1_header.output_vertexes.append(body1)
+        body1.input_vertexes.append(new_cyc1_header)
+        body1.output_vertexes.append(new_cyc1_latch)
+        new_cyc1_latch.input_vertexes.append(body1)
+
+        new_cyc1_latch.output_vertexes.append(after_all)
+        after_all.input_vertexes.append(new_cyc1_latch)
+        new_cyc1_enter.output_vertexes.append(after_all)
+        after_all.input_vertexes.append(new_cyc1_enter)
+
+        self.graph.vertexes.append(new_cyc_enter)
+        self.graph.vertexes.append(new_cyc_header)
+        self.graph.vertexes.append(new_cyc_latch)
+        self.graph.vertexes.append(body)
+        self.graph.vertexes.append(new_cyc1_enter)
+        self.graph.vertexes.append(new_cyc1_header)
+        self.graph.vertexes.append(new_cyc1_latch)
+        self.graph.vertexes.append(body1)
+
+        self.replace_slices(body)
+
+    def fill_slice_assigns(self, block, value):
+        for instruction in block.block:
+            if instruction.is_use_op(value) and not (isinstance(instruction, AtomicAssign) and instruction.dimentions is not None):
+                self.slices_variables.append(instruction.value)
+                self.fill_slice_assigns(block, instruction.value)
+
+    def replace_slices(self, block):
+        new_instructions = []
+        for instruction in block.block:
+            if isinstance(instruction, AtomicAssign):
+                if instruction.dimentions is not None:
+                    slice_instr = SliceAssign(instruction.type, instruction.value, instruction.argument,
+                                              instruction.dimentions, instruction.dimentions_variables)
+                    new_instructions.append(slice_instr)
+                elif isinstance(instruction.argument, ArrayUseOperand):
+                    slice_op = SliceOperand(instruction.argument.name, instruction.argument.indexing,
+                                            instruction.argument.dimention_variables)
+                    slice_instr = AtomicAssign(instruction.type, instruction.value, slice_op,
+                                               instruction.dimentions, instruction.dimentions_variables)
+                    new_instructions.append(slice_instr)
+                    self.slices_variables.append(instruction.value)
+                    self.fill_slice_assigns(block, instruction.value)
+                else:
+                    new_instructions.append(instruction)
+            else:
+                new_instructions.append(instruction)
+        block.block = new_instructions

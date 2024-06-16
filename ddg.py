@@ -111,10 +111,10 @@ def dependency_analyze(use1, use2, indexes, loops_info):
     use1_used_indixes = list(map(lambda x: list(map(lambda y: y[1], x[0])), use1_indixes_parsed))
     use2_used_indixes = list(map(lambda x: list(map(lambda y: y[1], x[0])), use2_indixes_parsed))
     if use1_name != use2_name:
-        return False, 0, 0, False, False
+        return False, False, False, False
 
     if len(use1_indixes_parsed) != len(use2_indixes_parsed):
-        return False, 0, False, False
+        return False, False, False, False
 
     if not inner_index in use1_used_indixes[-1]:
         return None
@@ -254,11 +254,13 @@ class GraphDDG:
         vertex.color = Color.BLACK
 
     def check_cycle(self):
+        if len(self.vertexes) == 0:
+            return False
         self.cycles_pairs = []
         for v in self.vertexes:
             v.color = Color.WHITE
         self.cycle_dfs(self.vertexes[0])
-        return len(self.cycles_pairs) == 0
+        return len(self.cycles_pairs) > 0
 
     def dfs(self, node):
         node.visited = True

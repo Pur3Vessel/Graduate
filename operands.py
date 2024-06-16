@@ -222,6 +222,85 @@ class ArrayUseOperand(Operand):
         self.indexing = new_args
 
 
+class SliceOperand(Operand):
+
+    def __init__(self, name, indexing, dimention_variables):
+        self.name = name
+        self.indexing = indexing
+        self.dimention_variables = dimention_variables
+
+    def __str__(self):
+        s = self.name + "["
+        for i, idx in enumerate(self.indexing):
+            s += str(idx)
+            if i != len(self.indexing) - 1:
+                s += ", "
+            else:
+                s += ":"
+        s += "]"
+        return s
+
+    def get_operands(self):
+        return self.indexing
+
+    def is_use_op(self, value):
+        is_use = False
+        for arg in self.indexing:
+            is_use = is_use or value == arg.value
+        if self.dimention_variables is not None:
+            for d in self.dimention_variables:
+                if d == value:
+                    return True
+        return is_use
+
+    def place_constants(self, lattice):
+        changed = False
+        for i, arg in enumerate(self.indexing):
+            if isinstance(arg, IdOperand):
+                if arg.value in lattice.sl:
+                    val = lattice.sl[arg.value]
+                    if not isinstance(val, ConstantLatticeElement):
+                        if type(val) is int:
+                            self.indexing[i] = IntConstantOperand(val)
+                        else:
+                            assert type(val) is bool
+                            self.indexing[i] = BoolConstantOperand(val)
+                        changed = True
+        return changed
+
+    def remove_versions(self):
+        for i, arg in enumerate(self.indexing):
+            if isinstance(arg, IdOperand):
+                self.indexing[i] = IdOperand(arg.value.split("_")[0])
+
+    def replace_operand(self, name, new_name):
+        new_args = []
+        for arg in self.indexing:
+            if arg.value == name:
+                new_args.append(IdOperand(new_name))
+            else:
+                new_args.append(arg)
+        self.indexing = new_args
+
+    def replace_tmp(self, version):
+        for i, arg in enumerate(self.indexing):
+            if isinstance(arg, IdOperand) and len(arg.value.split("$")) > 1:
+                version = version + 1
+                new_tmp = "tmp$" + str(version)
+                self.indexing[i] = IdOperand(new_tmp)
+
+        return version
+
+    def rename_operands(self, name, version):
+        new_args = []
+        for arg in self.indexing:
+            if arg.value == name:
+                new_args.append(IdOperand(name + "_" + str(version)))
+            else:
+                new_args.append(arg)
+        self.indexing = new_args
+
+
 class FuncCallOperand(Operand):
     def __init__(self, func_name, arguments):
         self.name = func_name

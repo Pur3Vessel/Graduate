@@ -131,6 +131,7 @@ class JumpNotEqual(LowIR):
     def __str__(self):
         return "jne " + self.label
 
+
 class JumpGreater(LowIR):
     def __init__(self, label):
         self.label = label
@@ -327,6 +328,15 @@ class Cvtsi2ss(LowIR):
         return "cvtsi2ss " + self.arg1 + ", " + self.arg2
 
 
+class Cvtpi2ps(LowIR):
+    def __init__(self, arg1, arg2):
+        self.arg1 = arg1
+        self.arg2 = arg2
+
+    def __str__(self):
+        return "cvtpi2ps " + self.arg1 + ", " + self.arg2
+
+
 class Lea(LowIR):
     def __init__(self, arg1, arg2):
         self.arg1 = arg1
@@ -408,3 +418,112 @@ class RCPSS(LowIR):
 
     def __str__(self):
         return "rcpss " + self.arg1 + ", " + self.arg2
+
+
+class Shufps(LowIR):
+    def __init__(self, arg1, arg2, arg3):
+        self.arg1 = arg1
+        self.arg2 = arg2
+        self.arg3 = arg3
+
+    def __str__(self):
+        return "shufps " + self.arg1 + ", " + self.arg2 + ", " + self.arg3
+
+
+class Pshufd(LowIR):
+    def __init__(self, arg1, arg2, arg3):
+        self.arg1 = arg1
+        self.arg2 = arg2
+        self.arg3 = arg3
+
+    def __str__(self):
+        return "pshufd " + self.arg1 + ", " + self.arg2 + ", " + self.arg3
+
+
+class Movups(LowIR):
+    def __init__(self, arg1, arg2):
+        self.arg1 = arg1
+        self.arg2 = arg2
+
+    def __str__(self):
+        return "movups " + self.arg1 + ", " + self.arg2
+
+
+class Movdqu(LowIR):
+    def __init__(self, arg1, arg2):
+        self.arg1 = arg1
+        self.arg2 = arg2
+
+    def __str__(self):
+        return "movdqu " + self.arg1 + ", " + self.arg2
+
+
+class Movd(LowIR):
+    def __init__(self, arg1, arg2):
+        self.arg1 = arg1
+        self.arg2 = arg2
+
+    def __str__(self):
+        return "movd " + self.arg1 + ", " + self.arg2
+
+class Addps(LowIR):
+    def __init__(self, arg1, arg2):
+        self.arg1 = arg1
+        self.arg2 = arg2
+
+    def __str__(self):
+        return "addps " + self.arg1 + ", " + self.arg2
+
+
+class Paddd(LowIR):
+    def __init__(self, arg1, arg2):
+        self.arg1 = arg1
+        self.arg2 = arg2
+
+    def __str__(self):
+        return "paddd " + self.arg1 + ", " + self.arg2
+
+
+class Subps(LowIR):
+    def __init__(self, arg1, arg2):
+        self.arg1 = arg1
+        self.arg2 = arg2
+
+    def __str__(self):
+        return "subps " + self.arg1 + ", " + self.arg2
+
+
+class Psubd(LowIR):
+    def __init__(self, arg1, arg2):
+        self.arg1 = arg1
+        self.arg2 = arg2
+
+    def __str__(self):
+        return "psubd " + self.arg1 + ", " + self.arg2
+
+
+class Mulps(LowIR):
+    def __init__(self, arg1, arg2):
+        self.arg1 = arg1
+        self.arg2 = arg2
+
+    def __str__(self):
+        return "mulps " + self.arg1 + ", " + self.arg2
+
+
+class Pmulld(LowIR):
+    def __init__(self, arg1, arg2):
+        self.arg1 = arg1
+        self.arg2 = arg2
+
+    def __str__(self):
+        return "pmulld " + self.arg1 + ", " + self.arg2
+
+
+class Divps(LowIR):
+    def __init__(self, arg1, arg2):
+        self.arg1 = arg1
+        self.arg2 = arg2
+
+    def __str__(self):
+        return "divps " + self.arg1 + ", " + self.arg2

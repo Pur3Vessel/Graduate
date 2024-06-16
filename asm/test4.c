@@ -29,6 +29,7 @@ int main() {
         e[i] = i + 5;
     }
     b[u3] = 0;
+    c[u2] = 0;
 
     int result = v_test(a, u1, b, u3 + 1, c, u2 + 1, d, u4, e, u5);
     printf("Результат: %d\n", result);
@@ -42,6 +43,7 @@ int main() {
         e1[i] = i + 5;
     }
     b1[u3] = 0;
+    c1[u2] = 0;
     int result1 = v(a1, u1, b1, u3 + 1, c1, u2 + 1, d1, u4, e1, u5);
     printf("Результат сгенерированной программы: %d\n", result1);
     return 0;

@@ -129,7 +129,9 @@ class ContextBuilder:
         int_ifg = IFG(k_reg)
         float_ifg = IFG(k_xmm_reg)
 
-        int_ifg.build(self.context, True, [], [])
+        self.context.slices_variables = list(set(self.context.slices_variables))
+
+        int_ifg.build(self.context, True, list(map(lambda x: x.replace("$", "_"), self.context.slices_variables)), [])
         spill_var = int_ifg.try_color()
         # if self.i == 1 and self.func_name == "tile":
         #    int_ifg.to_graph("IFG/ifg.txt")
@@ -137,12 +139,10 @@ class ContextBuilder:
         spill_vars = []
         while spill_var is not None:
             spill_vars.append(spill_var)
-            int_ifg.build(self.context, True, spill_vars, [])
+            int_ifg.build(self.context, True, spill_vars + list(map(lambda x: x.replace("$", "_"), self.context.slices_variables)), [])
             spill_var = int_ifg.try_color()
 
-        # added_vars = spill_vars
-        # spill_vars = []
-        added_vars = []
+        added_vars = self.context.slices_variables
 
         float_ifg.build(self.context, False, [], added_vars)
         spill_var = float_ifg.try_color()
@@ -285,7 +285,7 @@ class ContextBuilder:
         self.context.quit_ssa()
         # for instruction, label in self.context.graph.instructions_to_labels.items():
         #        print("====================")
-        #for label, lives in self.context.labels_to_live.items():
+        # for label, lives in self.context.labels_to_live.items():
         #    print(label, lives)
         self.compute_used_regs()
         entry_code, used_xmm = self.generate_entry_block()
@@ -317,9 +317,11 @@ class ContextBuilder:
                                                            used_xmm)
             elif isinstance(instruction, AtomicAssign):
                 if instruction.is_phi:
-                    phi_assigns += instruction.get_low_ir_arr(self.scalar_variables, self.array_adresses)
+                    phi_assigns += instruction.get_low_ir_arr(self.scalar_variables, self.array_adresses, self.context.slices_variables)
                 else:
-                    self.code += instruction.get_low_ir_arr(self.scalar_variables, self.array_adresses)
+                    self.code += instruction.get_low_ir_arr(self.scalar_variables, self.array_adresses, self.context.slices_variables)
+            elif isinstance(instruction, SliceAssign):
+                self.code += instruction.get_low_ir_arr(self.scalar_variables, self.array_adresses, self.context.slices_variables)
             elif isinstance(instruction, ArrayInitInstruction):
                 if not self.is_entry:
                     self.code += instruction.get_low_ir_arr_decl(self.array_adresses)
@@ -330,7 +332,9 @@ class ContextBuilder:
                     code, compared = instruction.get_low_ir_cmp(self.scalar_variables)
                     self.code += code
                 else:
-                    self.code += instruction.get_low_ir(self.scalar_variables)
+                    self.code += instruction.get_low_ir_ass(self.scalar_variables, self.context.slices_variables)
+            elif isinstance(instruction, (UnaryAssign, BinaryAssign)):
+                self.code += instruction.get_low_ir_ass(self.scalar_variables, self.context.slices_variables)
             else:
                 self.code += instruction.get_low_ir(self.scalar_variables)
         self.code += phi_assigns

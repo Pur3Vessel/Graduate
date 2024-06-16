@@ -59,6 +59,7 @@ class IFG:
         self.k = k
         self.vertexes = []
         self.vars_to_color = {}
+        self.slices_vars = []
 
     def add_vertex(self, value):
         self.vertexes.append(IFG_vertex(value))
@@ -84,8 +85,9 @@ class IFG:
             variables = context.get_int_variables()
         else:
             variables = context.get_float_variables()
-        variables = list(map(lambda x: x.replace("$", "_"), variables))
         variables += added_vars
+        variables = list(map(lambda x: x.replace("$", "_"), variables))
+        self.slices_vars = list(map(lambda x: x.replace("$", "_"), added_vars))
         for var in variables:
             found = False
             for label, lives in context.labels_to_live.items():
@@ -144,7 +146,7 @@ class IFG:
             return True, 0, []
         order = self.lexBFS()
         order = order[::-1]
-        # print(list(map(lambda x: str(x), order)))
+        #print(list(map(lambda x: str(x), order)))
         pos = {v: i for i, v in enumerate(order)}
         max_clique = 0
         for i in range(len(self.vertexes)):
@@ -174,7 +176,9 @@ class IFG:
 
     def choose_spill(self):
         self.vertexes = sorted(self.vertexes, key=lambda x: len(x.adjacency), reverse=True)
-        return self.vertexes[0].value
+        for v in self.vertexes:
+            if v.value not in self.slices_vars:
+                return v.value
 
     def color(self, order):
         self.vars_to_color = {}

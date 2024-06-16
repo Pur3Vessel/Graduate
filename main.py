@@ -27,7 +27,13 @@ def opt_pass(tree, j, tiling_flag, vectorisation_flag):
             if tiling_flag:
                 builder.contexts[func.name].tiling()
             if vectorisation_flag:
+                if tiling_flag:
+                    builder.contexts[func.name].graph.dfs()
+                    builder.contexts[func.name].graph.get_natural_cycles()
+                    builder.contexts[func.name].graph.solve_rd()
                 builder.contexts[func.name].vectorisation()
+                if func.name == "aboba":
+                    builder.print_graph("out.txt")
         # Построение дерева доминаторов
         builder.contexts[func.name].graph.dfs()
         builder.contexts[func.name].graph.build_dominators_tree()
@@ -57,6 +63,7 @@ def opt_pass(tree, j, tiling_flag, vectorisation_flag):
 def generate_tests(tiling_flag, vectorisation_flag):
     n_tests = 7
     for i in range(1, n_tests + 1):
+        print(f"Тест {i} начался")
         builder.contexts = {}
         test_file = f"tests/test{i}.txt"
         out_file = f"out/out{i}.txt"
